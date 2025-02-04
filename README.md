@@ -42,7 +42,8 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 
 1. Clone the repo
     ```bash 
-    git clone https://github.com/yourusername/leetcode-api.git cd leetcode-api
+    git clone https://github.com/yourusername/leetcode-api.git
+    cd leetcode-api
     ```
 
 2. Install dependencies
@@ -73,4 +74,5 @@ Direct integration with LeetCode's GraphQL API
 ---
 
 *Disclaimer: This project isn't affiliated with LeetCode. Use at your own risk.*
+
 Made with ❤️ by [Yan-Ying Liao](http://noworneverev.github.io)
