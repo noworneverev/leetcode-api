@@ -4,25 +4,27 @@
 
 [![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://leetcode-api-pied.vercel.app) [![FastAPI](https://img.shields.io/badge/Powered%20By-FastAPI-%2300C7B7?logo=fastapi)](https://fastapi.tiangolo.com) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+
+### 🚀 Core Services
+- **Live Demo**: [leetcode-api-pied.vercel.app](https://leetcode-api-pied.vercel.app)
+- **Interactive Docs**: [docs.leetcode-api.vercel.app](https://leetcode-api-pied.vercel.app/docs)
+- **Google Sheet Integration**: [View Sheet](https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA/edit?usp=sharing)  
+  *(Daily updated LeetCode question database with sorting/filtering)*
+
 A no-nonsense LeetCode API service for developers who want LeetCode data without the scraping headaches. Perfect for:
 - Building coding portfolios 🖼️
 - Tracking practice stats 📊
 - Creating LeetCode-powered apps 💻
 - Just messing around with API endpoints 🤹
 
-**Live Demo**: https://leetcode-api-pied.vercel.app  
-**Interactive Docs**: https://leetcode-api-pied.vercel.app/docs
-**LeetCode Google Sheet (Daily Update)**: https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA
-> A spreadsheet with all LeetCode questions data, updated daily. Easily sort and filter by various metrics.
-
-## 🚀 Quick Start
+## ⚡ Quick Start
 
 ```bash
 # Get today's daily challenge
 curl https://leetcode-api-pied.vercel.app/daily
 
 # Find a question by ID/slug
-curl https://leetcode-api-pied.vercel.app/question/two-sum
+curl https://leetcode-api-pied.vercel.app/problem/two-sum
 
 # Get user profile (try your LeetCode username!)
 curl https://leetcode-api-pied.vercel.app/user/lee215
