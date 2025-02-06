@@ -2,6 +2,7 @@ import requests
 import time
 import random
 import json
+from utils import get_google_sheets_service, prepare_sheet_data, update_google_sheet
 
 url = "https://leetcode.com/graphql"
 
@@ -113,3 +114,14 @@ with open("./data/leetcode_questions.json", "w") as f:
     json.dump(all_questions_data, f, indent=2)
 
 print("All questions' data saved to leetcode_questions.json")
+
+# Add Google Sheets update
+try:
+    print("Starting Google Sheets update...")
+    service = get_google_sheets_service()
+    sheet_data = prepare_sheet_data(all_questions_data)
+    update_google_sheet(service, sheet_data)
+    print("Successfully updated Google Sheets")
+except Exception as e:
+    print(f"Failed to update Google Sheets: {str(e)}")
+

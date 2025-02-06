@@ -21,6 +21,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run download.py
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python download.py
 
       - name: Commit and Push changes
