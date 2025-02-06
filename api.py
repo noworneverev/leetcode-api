@@ -91,7 +91,7 @@ async def get_all_problems():
         "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
     } for q in cache.questions.values()]
 
-@app.get("/problems/{id_or_slug}")
+@app.get("/problem/{id_or_slug}")
 async def get_problem(id_or_slug: str):
     await cache.initialize()
     

@@ -30,12 +30,13 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 
 | Endpoint                        | Method | Description                         | Example                                                                                     |
 |---------------------------------|--------|-------------------------------------|---------------------------------------------------------------------------------------------|
-| `/questions`                    | GET    | All LeetCode questions              | [/questions](https://leetcode-api-pied.vercel.app/questions)                             |
-| `/question/{id_or_slug}`        | GET    | Get question by ID/slug             | [/question/two-sum](https://leetcode-api-pied.vercel.app/question/two-sum)                |
+| `/problems`                    | GET    | All LeetCode problems              | [/problems](https://leetcode-api-pied.vercel.app/problems)                             |
+| `/problem/{id_or_slug}`        | GET    | Get problem by ID/slug             | [/problem/two-sum](https://leetcode-api-pied.vercel.app/problem/two-sum)                |
+| `/problems/{topic}`             | GET    | Problems by topic (arrays, DP, etc) | [/problems/array](https://leetcode-api-pied.vercel.app/problems/array)                    |
 | `/user/{username}`              | GET    | User profile & stats                | [/user/lee215](https://leetcode-api-pied.vercel.app/user/lee215)                      |
-| `/daily`                        | GET    | Today's coding challenge            | [/daily](https://leetcode-api-pied.vercel.app/daily)                                      |
-| `/problems/{topic}`             | GET    | Questions by topic (arrays, DP, etc) | [/problems/array](https://leetcode-api-pied.vercel.app/problems/array)                    |
+| `/user/{username}/contests`  | GET    | User's recent contests           | [/user/lee215/contests](https://leetcode-api-pied.vercel.app/user/lee215/contests)         |
 | `/user/{username}/submissions`  | GET    | User's recent submissions           | [/user/lee215/submissions](https://leetcode-api-pied.vercel.app/user/lee215/submissions)         |
+| `/daily`                        | GET    | Today's coding challenge            | [/daily](https://leetcode-api-pied.vercel.app/daily)                                      |
 
 
 ## 🛠️ Local Setup
