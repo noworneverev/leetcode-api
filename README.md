@@ -1,11 +1,9 @@
 # LeetCode API 
+[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://leetcode-api-pied.vercel.app) [![FastAPI](https://img.shields.io/badge/Powered%20By-FastAPI-%2300C7B7?logo=fastapi)](https://fastapi.tiangolo.com) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 *"Yet Another LeetCode API" - Because why reinvent the wheel? (But we did anyway 🛠️)*
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://leetcode-api-pied.vercel.app) [![FastAPI](https://img.shields.io/badge/Powered%20By-FastAPI-%2300C7B7?logo=fastapi)](https://fastapi.tiangolo.com) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-
-### 🚀 Core Services
+## 🚀 Core Services
 - **Live Demo**: [leetcode-api-pied.vercel.app](https://leetcode-api-pied.vercel.app)
 - **Interactive Docs**: [docs.leetcode-api.vercel.app](https://leetcode-api-pied.vercel.app/docs)
 - **Google Sheet Integration**: [View Sheet](https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA/edit?usp=sharing)  
