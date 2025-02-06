@@ -80,8 +80,8 @@ async def fetch_with_retry(url: str, payload: dict, retries: int = 3):
             await asyncio.sleep(1)
     return None
 
-@app.get("/questions")
-async def get_all_questions():
+@app.get("/problems")
+async def get_all_problems():
     await cache.initialize()
     return [{
         "id": q["questionId"],
@@ -91,14 +91,14 @@ async def get_all_questions():
         "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
     } for q in cache.questions.values()]
 
-@app.get("/question/{identifier}")
-async def get_question(identifier: str):
+@app.get("/problems/{id_or_slug}")
+async def get_problem(id_or_slug: str):
     await cache.initialize()
     
-    if identifier in cache.frontend_id_to_slug:
-        slug = cache.frontend_id_to_slug[identifier]
-    elif identifier in cache.slug_to_id:
-        slug = identifier
+    if id_or_slug in cache.frontend_id_to_slug:
+        slug = cache.frontend_id_to_slug[id_or_slug]
+    elif id_or_slug in cache.slug_to_id:
+        slug = id_or_slug
     else:
         raise HTTPException(status_code=404, detail="Question not found")
 
@@ -145,6 +145,41 @@ async def get_question(identifier: str):
     cache.question_details[question_id] = question_data
     return question_data
 
+@app.get("/problems/{topic}")
+async def get_problems_by_topic(topic: str):
+    async with httpx.AsyncClient() as client:
+        query = """query problemsetQuestionList($categorySlug: String, $filters: QuestionListFilterInput) {
+            problemsetQuestionList: questionList(
+                categorySlug: $categorySlug
+                filters: $filters
+            ) {
+                questions: data {
+                    questionId
+                    title
+                    titleSlug
+                    difficulty
+                    topicTags { name }
+                }
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": {
+                "categorySlug": "",
+                "filters": {"tags": [topic]}
+            }
+        }
+        
+        try:
+            response = await client.post(leetcode_url, json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                return data["data"]["problemsetQuestionList"]["questions"]
+            raise HTTPException(status_code=response.status_code, detail="Error fetching problems by topic")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/user/{username}")
 async def get_user_profile(username: str):
     async with httpx.AsyncClient() as client:
@@ -190,35 +225,6 @@ async def get_user_profile(username: str):
                     raise HTTPException(status_code=404, detail="User not found")
                 return data["data"]["matchedUser"]
             raise HTTPException(status_code=response.status_code, detail="Error fetching user profile")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/daily")
-async def get_daily_challenge():
-    async with httpx.AsyncClient() as client:
-        query = """query questionOfToday {
-            activeDailyCodingChallengeQuestion {
-                date
-                link
-                question {
-                    questionId
-                    questionFrontendId
-                    title
-                    titleSlug
-                    difficulty
-                    content
-                }
-            }
-        }"""
-        
-        payload = {"query": query}
-        
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                return data["data"]["activeDailyCodingChallengeQuestion"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching daily challenge")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -291,40 +297,36 @@ async def get_recent_submissions(username: str, limit: int = 20):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/problems/{topic}")
-async def get_problems_by_topic(topic: str):
+
+@app.get("/daily")
+async def get_daily_challenge():
     async with httpx.AsyncClient() as client:
-        query = """query problemsetQuestionList($categorySlug: String, $filters: QuestionListFilterInput) {
-            problemsetQuestionList: questionList(
-                categorySlug: $categorySlug
-                filters: $filters
-            ) {
-                questions: data {
+        query = """query questionOfToday {
+            activeDailyCodingChallengeQuestion {
+                date
+                link
+                question {
                     questionId
+                    questionFrontendId
                     title
                     titleSlug
                     difficulty
-                    topicTags { name }
+                    content
                 }
             }
         }"""
         
-        payload = {
-            "query": query,
-            "variables": {
-                "categorySlug": "",
-                "filters": {"tags": [topic]}
-            }
-        }
+        payload = {"query": query}
         
         try:
             response = await client.post(leetcode_url, json=payload)
             if response.status_code == 200:
                 data = response.json()
-                return data["data"]["problemsetQuestionList"]["questions"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching problems by topic")
+                return data["data"]["activeDailyCodingChallengeQuestion"]
+            raise HTTPException(status_code=response.status_code, detail="Error fetching daily challenge")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
