@@ -12,6 +12,8 @@ A no-nonsense LeetCode API service for developers who want LeetCode data without
 
 **Live Demo**: https://leetcode-api-pied.vercel.app  
 **Interactive Docs**: https://leetcode-api-pied.vercel.app/docs
+**LeetCode Google Sheet (Daily Update)**: https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA
+> A spreadsheet with all LeetCode questions data, updated daily. Easily sort and filter by various metrics.
 
 ## 🚀 Quick Start
 
