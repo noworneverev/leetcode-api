@@ -11,8 +11,28 @@ load_dotenv()
 # Google Sheets configuration
 # https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA
 SPREADSHEET_ID = '1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA'
-SHEET_NAME = 'LeetCode Questions'
+SHEET_ID_TO_NAME = {
+    0: 'LeetCode Questions',
+    533665120: 'test'
+}
+TEST_SHEET_NAME = 'test'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+PROGRAMMING_LANGUAGES = [
+    "Python", "JavaScript", "Java", "C++", "C#", "Go", "Ruby", "Swift", "Kotlin", "Rust",
+    "PHP", "TypeScript", "Scala", "Haskell", "Objective-C", "Perl", "Lua", "R", "Dart"
+]
+
+SPOKEN_LANGUAGES = [
+    "English", "Traditional Chinese", "Simplified Chinese", "Hindi", "Spanish", "Arabic", "Bengali", "Portuguese",
+    "Russian", "Japanese", "German", "French", "Italian", "Korean", "Vietnamese", "Turkish",
+    "Persian", "Polish", "Dutch", "Thai", "Swedish", "Norwegian", "Finnish", "Danish",
+    "Hebrew", "Indonesian", "Malay", "Greek", "Czech", "Romanian", "Hungarian", "Slovak",
+    "Ukrainian"
+]
+
+prog_values = [{"userEnteredValue": lang} for lang in PROGRAMMING_LANGUAGES]
+spoken_values = [{"userEnteredValue": lang} for lang in SPOKEN_LANGUAGES]
 
 def get_google_sheets_service():
     """Authenticate and create Google Sheets service"""
@@ -39,7 +59,8 @@ def prepare_sheet_data(questions_data):
         'Free?',
         'Solution?',
         'Video\nSolution?',
-        'Category'
+        'Category',
+        'LLM Prompt'
     ]
     
     rows = []
@@ -54,6 +75,20 @@ def prepare_sheet_data(questions_data):
 
         topic_tags = q.get('topicTags') or []                        
         like_ratio_formula = '=IF(INDEX(C:C, ROW())+INDEX(D:D, ROW())=0, 0, INDEX(C:C, ROW())/(INDEX(C:C, ROW())+INDEX(D:D, ROW())))'
+
+        row_idx = idx + 4
+        prompt_formula = (
+            f"=CONCATENATE("
+            f"\"Please solve the LeetCode problem '\""
+            f", INDIRECT(\"A\" & ROW())"
+            f", \". \", INDIRECT(\"B\" & ROW())"
+            f", \"'. Follow these steps:\""
+            f", \" 1. First Intuition: Provide a high-level explanation of your approach.\""
+            f", \" 2. Problem-Solving Approach: Break down the solution into clear, logical steps.\""
+            f", \" 3. Code Implementation: Provide the solution in \", O$1, \" code.\""
+            f", \" 4. Complexity Analysis: Analyze the time and space complexity of your solution.\""
+            f", \" Answer in \", O$2, \".\")"
+        )
         row = [
             q.get('questionFrontendId', ''),
             f'=HYPERLINK("{q.get("url", "")}", "{q.get("title", "")}")',
@@ -68,13 +103,14 @@ def prepare_sheet_data(questions_data):
             "Yes" if not q.get('isPaidOnly', False) else "No",
             "Yes" if q.get('hasSolution', False) else "No",
             "Yes" if q.get('hasVideoSolution', False) else "No",
-            q.get('categoryTitle', '')
+            q.get('categoryTitle', ''),            
+            prompt_formula
         ]
         rows.append(row)
     
     return [headers] + sorted(rows, key=lambda x: x[2], reverse=True)
 
-def apply_sheet_formatting(service, rows_count):
+def apply_sheet_formatting(service, rows_count, sheet_id=0):
     """Apply modern formatting to Google Sheet"""
     colors = {
         'header': {'red': 0.16, 'green': 0.31, 'blue': 0.47},  # Dark blue
@@ -91,7 +127,7 @@ def apply_sheet_formatting(service, rows_count):
         # Freeze header row (now row 2)
         {
             "updateSheetProperties": {
-                "properties": {"sheetId": 0, "gridProperties": {"frozenRowCount": 2}},
+                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 3}},
                 "fields": "gridProperties.frozenRowCount"
             }
         },
@@ -100,18 +136,18 @@ def apply_sheet_formatting(service, rows_count):
             "setBasicFilter": {
                 "filter": {
                     "range": {
-                        "sheetId": 0,
-                        "startRowIndex": 1,  # Header at row 3
+                        "sheetId": sheet_id,
+                        "startRowIndex": 2,  # Header at row 3
                         "endRowIndex": rows_count,  # Number of rows in the data
                         "startColumnIndex": 0,
-                        "endColumnIndex": 14
+                        "endColumnIndex": 15
                     }
                 }
             }
         },        
         {
             "repeatCell": {
-                "range": {"sheetId": 0, "startRowIndex": 1, "endRowIndex": 2},
+                "range": {"sheetId": sheet_id, "startRowIndex": 2, "endRowIndex": 3},
                 "cell": {
                     "userEnteredFormat": {
                         "backgroundColor": colors['header'],  # Dark background
@@ -136,7 +172,7 @@ def apply_sheet_formatting(service, rows_count):
         *[{
             "addConditionalFormatRule": {
                 "rule": {
-                    "ranges": [{"sheetId": 0, "startColumnIndex": col}],
+                    "ranges": [{"sheetId": sheet_id, "startColumnIndex": col}],
                     "booleanRule": {
                         "condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": val}]},
                         "format": {"backgroundColor": colors[val.lower()]}
@@ -148,7 +184,7 @@ def apply_sheet_formatting(service, rows_count):
         *[{
             "addConditionalFormatRule": {
                 "rule": {
-                    "ranges": [{"sheetId": 0, "startColumnIndex": 5}],
+                    "ranges": [{"sheetId": sheet_id, "startColumnIndex": 5}],
                     "booleanRule": {
                         "condition": {"type": "TEXT_EQ", "values": [{"userEnteredValue": diff}]},
                         "format": {"backgroundColor": colors[diff.lower()]}
@@ -160,7 +196,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 0,  # Column A
                     "endIndex": 12     # Column L (exclusive)
@@ -175,7 +211,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 0,  # Column A (ID)
                     "endIndex": 1
@@ -187,7 +223,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 2,  # Column C D
                     "endIndex": 4
@@ -199,7 +235,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 1,  # Column B (Problem Name)
                     "endIndex": 2
@@ -211,7 +247,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 5,  # Column E (Topics)
                     "endIndex": 6
@@ -223,7 +259,7 @@ def apply_sheet_formatting(service, rows_count):
         {
             "updateDimensionProperties": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "dimension": "COLUMNS",
                     "startIndex": 7,
                     "endIndex": 9
@@ -232,14 +268,26 @@ def apply_sheet_formatting(service, rows_count):
                 "fields": "pixelSize"
             }
         },
+        {
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "COLUMNS",
+                    "startIndex": 14,  # Column O (LLM Prompt)
+                    "endIndex": 15
+                },
+                "properties": {"pixelSize": 200},
+                "fields": "pixelSize"
+            }
+        },
         # Format the Like Ratio (%) column as a percentage.
         {
             "repeatCell": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "startColumnIndex": 4,  # Column index for "Like Ratio (%)"
                     "endColumnIndex": 5,
-                    "startRowIndex": 2      # Apply from row 4 onward (header is at row 3)
+                    "startRowIndex": 3      
                 },
                 "cell": {
                     "userEnteredFormat": {
@@ -251,7 +299,98 @@ def apply_sheet_formatting(service, rows_count):
                 },
                 "fields": "userEnteredFormat.numberFormat"
             }
-        },        
+        },      
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startColumnIndex": 13,  
+                    "endColumnIndex": 14,
+                    "startRowIndex": 0,     
+                    "endRowIndex": 2        
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "horizontalAlignment": "RIGHT"
+                    }
+                },
+                "fields": "userEnteredFormat.horizontalAlignment"
+            }
+        },            
+        {
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,     # O1 (row 1)
+                    "endRowIndex": 1,
+                    "startColumnIndex": 14, # Column O
+                    "endColumnIndex": 15
+                },
+                "rule": {
+                    "condition": {
+                        "type": "ONE_OF_LIST",
+                        "values": prog_values
+                    },
+                    "showCustomUi": True,
+                    "strict": True
+                }
+            }
+        },
+        # Set default value for cell O1 to "Python"
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1,
+                    "startColumnIndex": 14,
+                    "endColumnIndex": 15
+                },
+                "cell": {
+                    "userEnteredValue": {
+                        "stringValue": "Python"
+                    }
+                },
+                "fields": "userEnteredValue"
+            }
+        },
+        {
+            "setDataValidation": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,     # O2 (row 2)
+                    "endRowIndex": 2,
+                    "startColumnIndex": 14, # Column O
+                    "endColumnIndex": 15
+                },
+                "rule": {
+                    "condition": {
+                        "type": "ONE_OF_LIST",
+                        "values": spoken_values
+                    },
+                    "showCustomUi": True,
+                    "strict": True
+                }
+            }
+        },
+        # Set default value for cell O2 to "English"
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 1,
+                    "endRowIndex": 2,
+                    "startColumnIndex": 14,
+                    "endColumnIndex": 15
+                },
+                "cell": {
+                    "userEnteredValue": {
+                        "stringValue": "English"
+                    }
+                },
+                "fields": "userEnteredValue"
+            }
+        }  
     ]
 
     service.spreadsheets().batchUpdate(
@@ -259,11 +398,11 @@ def apply_sheet_formatting(service, rows_count):
         body={"requests": requests}
     ).execute()
 
-def update_google_sheet(service, data):
+def update_google_sheet(service, data, sheet_id=0):
     """Update Google Sheet with prepared data"""
-    tz = pytz.timezone('Europe/Berlin')  # Set your timezone
+    tz = pytz.timezone('Europe/Berlin')
     now_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M %Z")
-    
+    sheet_name = SHEET_ID_TO_NAME.get(sheet_id, TEST_SHEET_NAME)
     # Update spreadsheet name
     service.spreadsheets().batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
@@ -282,7 +421,7 @@ def update_google_sheet(service, data):
     "requests": [{
             "repeatCell": {
                 "range": {
-                    "sheetId": 0,
+                    "sheetId": sheet_id,
                     "startRowIndex": 0,
                     "endRowIndex": 10000,  # Adjust row count as needed
                     "startColumnIndex": 0,
@@ -303,26 +442,50 @@ def update_google_sheet(service, data):
     
     service.spreadsheets().values().clear(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"'{SHEET_NAME}'!A:Z"
+        range=f"'{sheet_name}'!A:Z"
     ).execute()
     
     # Add info row at row 1
     total_problems = len(data) - 1  # Subtract 1 since the first row of `data` is the header.    
-    info_row = [f"Total Problems: {total_problems}"] + [""] * 7 + ['=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")', '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow me on LinkedIn")', '' ,f"Last Updated: {now_str}"]
+    info_row1 = [f"🫠 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")']
+    info_row2 = [f"🕰️ Last Updated: {now_str}", "", "", '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow/Connect with me on LinkedIn")']
+    info_row3 = ['Choose the Programming Language for the Prompt']
+    info_row4 = ['Choose the Language for the Answer']
     
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"'{SHEET_NAME}'!A1:N1",
+        range=f"'{sheet_name}'!A1:D1",
         valueInputOption='USER_ENTERED',
-        body={"values": [info_row]}
+        body={"values": [info_row1]}
     ).execute()    
-    
-    # Main data starting at row 2
+
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
-        range=f"'{SHEET_NAME}'!A2",
+        range=f"'{sheet_name}'!A2:D2",
+        valueInputOption='USER_ENTERED',
+        body={"values": [info_row2]}
+    ).execute()    
+
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_name}'!N1:N1",
+        valueInputOption='USER_ENTERED',
+        body={"values": [info_row3]}
+    ).execute()   
+
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_name}'!N2:N2",
+        valueInputOption='USER_ENTERED',
+        body={"values": [info_row4]}
+    ).execute()   
+    
+    # Main data starting at row 3
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_name}'!A3",
         valueInputOption='USER_ENTERED',
         body={"values": data}
     ).execute()
     
-    apply_sheet_formatting(service, len(data)+1)  # +2 for header and info rows    
+    apply_sheet_formatting(service, len(data)+2, sheet_id=sheet_id)  # +2 for info row

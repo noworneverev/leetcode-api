@@ -116,11 +116,11 @@ with open("./data/leetcode_questions.json", "w") as f:
 print("All questions' data saved to leetcode_questions.json")
 
 # Add Google Sheets update
-try:
+try:    
     print("Starting Google Sheets update...")
     service = get_google_sheets_service()
     sheet_data = prepare_sheet_data(all_questions_data)
-    update_google_sheet(service, sheet_data)
+    update_google_sheet(service, sheet_data, sheet_id=0)
     print("Successfully updated Google Sheets")
 except Exception as e:
     print(f"Failed to update Google Sheets: {str(e)}")
