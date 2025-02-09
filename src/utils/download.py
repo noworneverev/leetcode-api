@@ -2,7 +2,8 @@ import requests
 import time
 import random
 import json
-from utils import get_google_sheets_service, prepare_sheet_data, update_google_sheet
+import os
+from src.utils.google_sheets import get_google_sheets_service, prepare_sheet_data, update_google_sheet
 
 url = "https://leetcode.com/graphql"
 
@@ -110,7 +111,10 @@ for question in questions:
     if retries == max_retries:
         print(f"Max retries reached for: (ID: {question_id}) {question['title']}. Skipping...")
 
-with open("./data/leetcode_questions.json", "w") as f:
+data_file_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "leetcode_questions.json"))
+os.makedirs(os.path.dirname(data_file_path), exist_ok=True)
+
+with open(data_file_path, "w") as f:
     json.dump(all_questions_data, f, indent=2)
 
 print("All questions' data saved to leetcode_questions.json")
