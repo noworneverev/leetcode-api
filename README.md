@@ -49,17 +49,32 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
     cd leetcode-api
     ```
 
-2. Install dependencies
+2. Set up virtual environment (recommended)
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # Linux/MacOS
+    venv\Scripts\activate     # Windows
+    ```
+
+4. Install dependencies
     ```bash 
     pip install -r requirements.txt
     ```
 
-3. Run the server
+5. Run the server
     ```bash 
-    python api.py
+    python run.py
     ```
+    Visit http://localhost:8000/docs for local Swagger docs!
 
-Visit http://localhost:8000/docs for local Swagger docs!
+
+## 🔄 Daily Updated Full Problems JSON
+
+Get the latest LeetCode problems. Either run:
+```bash 
+python -m src.utils.download
+```
+or download  `leetcode_questions.json`(updated daily) directly from the `data` folder.
 
 ## 🤔 Why This API?
 - Always Fresh Data 🥬
