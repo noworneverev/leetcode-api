@@ -80,7 +80,7 @@ async def fetch_with_retry(url: str, payload: dict, retries: int = 3):
             await asyncio.sleep(1)
     return None
 
-@app.get("/problems")
+@app.get("/problems", tags=["Problems"])
 async def get_all_problems():
     await cache.initialize()
     return [{
@@ -91,7 +91,7 @@ async def get_all_problems():
         "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
     } for q in cache.questions.values()]
 
-@app.get("/problem/{id_or_slug}")
+@app.get("/problem/{id_or_slug}", tags=["Problems"])
 async def get_problem(id_or_slug: str):
     await cache.initialize()
     
@@ -145,7 +145,7 @@ async def get_problem(id_or_slug: str):
     cache.question_details[question_id] = question_data
     return question_data
 
-@app.get("/problems/{topic}")
+@app.get("/problems/{topic}", tags=["Problems"])
 async def get_problems_by_topic(topic: str):
     async with httpx.AsyncClient() as client:
         query = """query problemsetQuestionList($categorySlug: String, $filters: QuestionListFilterInput) {
@@ -180,7 +180,7 @@ async def get_problems_by_topic(topic: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/user/{username}")
+@app.get("/user/{username}", tags=["Users"])
 async def get_user_profile(username: str):
     async with httpx.AsyncClient() as client:
         query = """query userPublicProfile($username: String!) {
@@ -228,7 +228,7 @@ async def get_user_profile(username: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/user/{username}/contests")
+@app.get("/user/{username}/contests", tags=["Users"])
 async def get_user_contest_history(username: str):
     async with httpx.AsyncClient() as client:
         query = """query userContestRankingInfo($username: String!) {
@@ -267,7 +267,7 @@ async def get_user_contest_history(username: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/user/{username}/submissions")
+@app.get("/user/{username}/submissions", tags=["Users"])
 async def get_recent_submissions(username: str, limit: int = 20):
     async with httpx.AsyncClient() as client:
         query = """query recentSubmissions($username: String!, $limit: Int) {
@@ -298,7 +298,7 @@ async def get_recent_submissions(username: str, limit: int = 20):
             raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/daily")
+@app.get("/daily", tags=["Daily Challenge"])
 async def get_daily_challenge():
     async with httpx.AsyncClient() as client:
         query = """query questionOfToday {
