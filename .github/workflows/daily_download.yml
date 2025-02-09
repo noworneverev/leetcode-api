@@ -23,7 +23,7 @@ jobs:
       - name: Run download.py
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: python src/utils/download.py 
+        run: python -m src.utils.download
 
       - name: Commit and Push changes
         run: |
