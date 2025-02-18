@@ -6,6 +6,7 @@ from typing import Dict
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+import random
 
 app = FastAPI()
 leetcode_url = "https://leetcode.com/graphql"
@@ -146,40 +147,41 @@ async def get_problem(id_or_slug: str):
     cache.question_details[question_id] = question_data
     return question_data
 
-@app.get("/problems/{topic}", tags=["Problems"])
-async def get_problems_by_topic(topic: str):
-    async with httpx.AsyncClient() as client:
-        query = """query problemsetQuestionList($categorySlug: String, $filters: QuestionListFilterInput) {
-            problemsetQuestionList: questionList(
-                categorySlug: $categorySlug
-                filters: $filters
-            ) {
-                questions: data {
-                    questionId
-                    title
-                    titleSlug
-                    difficulty
-                    topicTags { name }
-                }
-            }
-        }"""
-        
-        payload = {
-            "query": query,
-            "variables": {
-                "categorySlug": "",
-                "filters": {"tags": [topic]}
-            }
-        }
-        
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                return data["data"]["problemsetQuestionList"]["questions"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching problems by topic")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+@app.get("/search", tags=["Problems"])
+async def search_problems(query: str):
+    """
+    Search for problems whose titles contain the given query (case-insensitive).
+    """
+    await cache.initialize()
+    query_lower = query.lower()
+    results = []
+    for q in cache.questions.values():
+        if query_lower in q["title"].lower():
+            results.append({
+                "id": q["questionId"],
+                "frontend_id": q["questionFrontendId"],
+                "title": q["title"],
+                "title_slug": q["titleSlug"],
+                "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
+            })
+    return results
+
+@app.get("/random", tags=["Problems"])
+async def get_random_problem():
+    """
+    Return a random problem from the cached questions.
+    """
+    await cache.initialize()
+    if not cache.questions:
+        raise HTTPException(status_code=404, detail="No questions available")
+    q = random.choice(list(cache.questions.values()))
+    return {
+        "id": q["questionId"],
+        "frontend_id": q["questionFrontendId"],
+        "title": q["title"],
+        "title_slug": q["titleSlug"],
+        "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
+    }
 
 @app.get("/user/{username}", tags=["Users"])
 async def get_user_profile(username: str):
@@ -328,132 +330,23 @@ async def get_daily_challenge():
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/health", tags=["Utility"])
+async def health_check():
+    return {"status": "ok", "timestamp": time.time()}
+
+@app.get("/refresh", tags=["Admin"])
+async def refresh_cache():
+    # Force refresh the question cache regardless of the update interval
+    async with cache.lock:
+        await cache._fetch_all_questions()
+        cache.last_updated = time.time()
+    return {"detail": "Cache refreshed"}
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home():
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>LeetCode API</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-        <style>
-            /* Dark mode styles */
-            body.dark-mode {
-                background-color: #1a202c !important;
-                color: #e2e8f0;
-            }
-            
-            body.dark-mode .bg-white {
-                background-color: #2d3748 !important;
-            }
-
-            body.dark-mode .text-gray-800 {
-                color: #e2e8f0 !important;
-            }
-
-            body.dark-mode .text-gray-600 {
-                color: #cbd5e0 !important;
-            }
-
-            body.dark-mode .text-gray-500 {
-                color: #a0aec0 !important;
-            }
-
-            body.dark-mode .bg-blue-500 {
-                background-color: #2563eb !important;
-            }
-
-            body.dark-mode .bg-green-500 {
-                background-color: #059669 !important;
-            }
-
-            body.dark-mode .hover\:bg-blue-600:hover {
-                background-color: #1d4ed8 !important;
-            }
-
-            body.dark-mode .hover\:bg-green-600:hover {
-                background-color: #047857 !important;
-            }
-        </style>
-    </head>
-    <body class="bg-gray-100 min-h-screen flex items-center justify-center">
-        <div class="max-w-2xl mx-4 text-center">
-            <div class="bg-white rounded-lg shadow-lg p-8 space-y-6">
-                <div class="flex justify-end">
-                    <button id="theme-toggle" class="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 focus:outline-none">
-                        <i id="theme-icon" class="fas fa-moon"></i>
-                    </button>
-                </div>
-                <h1 class="text-4xl font-bold text-gray-800 mb-4">
-                    LeetCode API Gateway
-                    <i class="fas fa-rocket text-blue-500 ml-2"></i>
-                </h1>
-                
-                <p class="text-gray-600 text-lg">
-                    Explore LeetCode data through our API endpoints. Get problem details,
-                    user statistics, submissions history, and more!
-                </p>
-
-                <div class="flex flex-col sm:flex-row justify-center gap-4">
-                    <a href="https://leetcode-api-pied.vercel.app/docs" 
-                    target="_blank"
-                    class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg
-                            transition-all duration-300 transform hover:scale-105
-                            flex items-center justify-center gap-2">
-                        <i class="fas fa-book-open"></i>
-                        API Documentation
-                    </a>
-                    
-                    <a href="https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA/edit?usp=sharing" 
-                    target="_blank"
-                    class="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg
-                            transition-all duration-300 transform hover:scale-105
-                            flex items-center justify-center gap-2">
-                        <i class="fas fa-table"></i>
-                        Google Sheet (Updated Daily)
-                    </a>
-                </div>
-
-                <p class="text-gray-500 text-sm mt-8 flex items-center justify-center gap-1">
-        Made with ❤️ by 
-        <a href="https://noworneverev.github.io/" target="_blank" 
-        class="text-blue-500 font-semibold hover:text-blue-600 transition duration-300">
-            Yan-Ying Liao
-        </a>    
-    </p>
-            </div>
-        </div>
-
-        <script>
-            const themeToggleBtn = document.getElementById('theme-toggle');
-            const themeIcon = document.getElementById('theme-icon');
-            const body = document.body;
-
-            // Check local storage for theme preference
-            const currentTheme = localStorage.getItem('theme');
-            if (currentTheme === 'dark') {
-                body.classList.add('dark-mode');
-                themeIcon.classList.replace('fa-moon', 'fa-sun');
-            }
-
-            themeToggleBtn.addEventListener('click', () => {
-                body.classList.toggle('dark-mode');
-                if (body.classList.contains('dark-mode')) {
-                    themeIcon.classList.replace('fa-moon', 'fa-sun');
-                    localStorage.setItem('theme', 'dark');
-                } else {
-                    themeIcon.classList.replace('fa-sun', 'fa-moon');
-                    localStorage.setItem('theme', 'light');
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """
-
+    from src.api.home import HOME_PAGE_HTML
+    return HOME_PAGE_HTML 
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

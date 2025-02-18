@@ -447,7 +447,7 @@ def update_google_sheet(service, data, sheet_id=0):
     
     # Add info row at row 1
     total_problems = len(data) - 1  # Subtract 1 since the first row of `data` is the header.    
-    info_row1 = [f"🫠 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")']
+    info_row1 = [f"🧩 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")']
     info_row2 = [f"🕰️ Last Updated: {now_str}", "", "", '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow/Connect with me on LinkedIn")']
     info_row3 = ['Choose the Programming Language for the Prompt']
     info_row4 = ['Choose the Language for the Answer']
