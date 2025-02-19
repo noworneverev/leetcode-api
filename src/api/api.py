@@ -40,7 +40,11 @@ class QuestionCache:
                     questionId
                     questionFrontendId
                     title
-                    titleSlug
+                    titleSlug                    
+                    difficulty                    
+                    paidOnly: isPaidOnly      
+                    hasSolution
+                    hasVideoSolution                                                           
                 }
             }
         }"""
@@ -58,7 +62,7 @@ class QuestionCache:
                 for q in questions:
                     self.questions[q["questionId"]] = q
                     self.slug_to_id[q["titleSlug"]] = q["questionId"]
-                    self.frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]
+                    self.frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]                    
         except Exception as e:
             print(f"Error updating questions: {e}")
 
@@ -90,7 +94,11 @@ async def get_all_problems():
         "frontend_id": q["questionFrontendId"],
         "title": q["title"],
         "title_slug": q["titleSlug"],
-        "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
+        "url": f"https://leetcode.com/problems/{q['titleSlug']}/",
+        "difficulty": q["difficulty"],                
+        "paid_only": q["paidOnly"],        
+        "has_solution": q["hasSolution"],
+        "has_video_solution": q["hasVideoSolution"],        
     } for q in cache.questions.values()]
 
 @app.get("/problem/{id_or_slug}", tags=["Problems"])
