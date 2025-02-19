@@ -34,7 +34,7 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 |---------------------------------|--------|-------------------------------------|---------------------------------------------------------------------------------------------|
 | `/problems`                    | GET    | All LeetCode problems              | [/problems](https://leetcode-api-pied.vercel.app/problems)                             |
 | `/problem/{id_or_slug}`        | GET    | Get problem by ID/slug             | [/problem/two-sum](https://leetcode-api-pied.vercel.app/problem/two-sum)                |
-| `/search/{query}`              | GET    | Search for problems                | [/search/two%20sum](https://leetcode-api-pied.vercel.app/search/two%20sum)              |
+| `/search/{query}`              | GET    | Search for problems                | [/search?query=two%20sum](https://leetcode-api-pied.vercel.app/search?query=two%20sum)              |
 | `/random`                       | GET    | Random LeetCode problem            | [/random](https://leetcode-api-pied.vercel.app/random)                                    |
 | `/user/{username}`              | GET    | User profile & stats                | [/user/lee215](https://leetcode-api-pied.vercel.app/user/lee215)                      |
 | `/user/{username}/contests`  | GET    | User's recent contests           | [/user/lee215/contests](https://leetcode-api-pied.vercel.app/user/lee215/contests)         |
