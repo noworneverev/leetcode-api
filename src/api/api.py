@@ -342,14 +342,6 @@ async def get_daily_challenge():
 async def health_check():
     return {"status": "ok", "timestamp": time.time()}
 
-@app.get("/refresh", tags=["Admin"])
-async def refresh_cache():
-    # Force refresh the question cache regardless of the update interval
-    async with cache.lock:
-        await cache._fetch_all_questions()
-        cache.last_updated = time.time()
-    return {"detail": "Cache refreshed"}
-
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home():
