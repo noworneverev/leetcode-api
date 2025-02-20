@@ -51,9 +51,32 @@ HOME_PAGE_HTML ="""
     <body class="bg-gray-100 min-h-screen flex items-center justify-center">
         <div class="max-w-2xl mx-4 text-center">
             <div class="bg-white rounded-lg shadow-lg p-8 space-y-6">
-                <div class="flex justify-end">
-                    <button id="theme-toggle" class="text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 focus:outline-none">
-                        <i id="theme-icon" class="fas fa-moon"></i>
+                <div class="flex justify-end space-x-2">
+                    <!-- GitHub Icon Button -->
+                    <a href="https://github.com/noworneverev/leetcode-api"
+                    target="_blank"
+                    class="flex items-center justify-center w-10 h-10 
+                            rounded-full 
+                            bg-gray-100 dark:bg-gray-700 
+                            text-gray-600 dark:text-gray-300 
+                            hover:bg-gray-200 dark:hover:bg-gray-600 
+                            hover:text-gray-800 dark:hover:text-gray-100 
+                            transition-colors duration-200 
+                            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i class="fab fa-github fa-lg"></i>
+                    </a>
+
+                    <!-- Theme Toggle Icon Button -->
+                    <button id="theme-toggle"
+                            class="flex items-center justify-center w-10 h-10 
+                                rounded-full 
+                                bg-gray-100 dark:bg-gray-700 
+                                text-gray-600 dark:text-gray-300 
+                                hover:bg-gray-200 dark:hover:bg-gray-600 
+                                hover:text-gray-800 dark:hover:text-gray-100 
+                                transition-colors duration-200 
+                                focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i id="theme-icon" class="fas fa-moon fa-lg"></i>
                     </button>
                 </div>
                 <h1 class="text-4xl font-bold text-gray-800 mb-4">

@@ -4,16 +4,15 @@
 *"Yet Another LeetCode API" - Because why reinvent the wheel? (But we did anyway 🛠️)*
 
 ## 🚀 Core Services
+
 - **Live Demo**: [leetcode-api-pied.vercel.app](https://leetcode-api-pied.vercel.app)
-- **Interactive Docs**: [docs.leetcode-api.vercel.app](https://leetcode-api-pied.vercel.app/docs)
-- **Google Sheet Integration**: [View Sheet](https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA/edit?usp=sharing)  
+- **Interactive Docs**: [leetcode-api-pied.vercel.app/docs](https://leetcode-api-pied.vercel.app/docs)
+- **Google Sheet**: [View Sheet](https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA/edit?usp=sharing)  
   *(Daily updated LeetCode question database with sorting/filtering)*
 
-A no-nonsense LeetCode API service for developers who want LeetCode data without the scraping headaches. Perfect for:
-- Building coding portfolios 🖼️
-- Tracking practice stats 📊
-- Creating LeetCode-powered apps 💻
-- Just messing around with API endpoints 🤹
+    **Enable Filtering/Sorting:**  
+    1. Select **Row 3**.  
+    2. Go to **Data > Filter views > Create new filter view**.  
 
 ## ⚡ Quick Start
 
@@ -21,7 +20,8 @@ A no-nonsense LeetCode API service for developers who want LeetCode data without
 # Get today's daily challenge
 curl https://leetcode-api-pied.vercel.app/daily
 
-# Find a question by ID/slug
+# Find a problem by ID/slug
+curl https://leetcode-api-pied.vercel.app/problem/1
 curl https://leetcode-api-pied.vercel.app/problem/two-sum
 
 # Get user profile (try your LeetCode username!)
@@ -33,7 +33,7 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 | Endpoint                        | Method | Description                         | Example                                                                                     |
 |---------------------------------|--------|-------------------------------------|---------------------------------------------------------------------------------------------|
 | `/problems`                    | GET    | All LeetCode problems              | [/problems](https://leetcode-api-pied.vercel.app/problems)                             |
-| `/problem/{id_or_slug}`        | GET    | Get problem by ID/slug             | [/problem/two-sum](https://leetcode-api-pied.vercel.app/problem/two-sum)                |
+| `/problem/{id_or_slug}`        | GET    | Get problem by ID/slug             | [/problem/1](https://leetcode-api-pied.vercel.app/problem/1)<br />[/problem/two-sum](https://leetcode-api-pied.vercel.app/problem/two-sum)                |
 | `/search/{query}`              | GET    | Search for problems                | [/search?query=two%20sum](https://leetcode-api-pied.vercel.app/search?query=two%20sum)              |
 | `/random`                       | GET    | Random LeetCode problem            | [/random](https://leetcode-api-pied.vercel.app/random)                                    |
 | `/user/{username}`              | GET    | User profile & stats                | [/user/lee215](https://leetcode-api-pied.vercel.app/user/lee215)                      |
@@ -79,16 +79,16 @@ or download  `leetcode_questions.json`(updated daily) directly from the `data` f
 
 ## 🤔 Why This API?
 - Always Fresh Data 🥬
-Auto-updating cache system (no stale LeetCode questions!)
+  Auto-updating cache system (no stale LeetCode questions!)
 
 - Vercel-Ready ⚡
-One-click deployment with serverless architecture
+  One-click deployment with serverless architecture
 
 - No API Keys 🔓
-Free to use with sensible rate limits
+  Free to use with sensible rate limits
 
 - Real LeetCode Data 🔥
-Direct integration with LeetCode's GraphQL API
+  Direct integration with LeetCode's GraphQL API
 
 ---
 
