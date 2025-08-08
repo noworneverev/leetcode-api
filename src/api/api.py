@@ -197,15 +197,29 @@ async def get_user_profile(username: str):
         query = """query userPublicProfile($username: String!) {
             matchedUser(username: $username) {
                 username
+                githubUrl
+                twitterUrl
+                linkedinUrl
                 profile {
+                    userAvatar
                     realName
                     websites
                     countryName
                     company
+                    jobTitle
+                    skillTags
                     school
                     aboutMe
+                    postViewCount
+                    postViewCountDiff
                     reputation
                     ranking
+                    reputationDiff
+                    solutionCount
+                    solutionCountDiff
+                    categoryDiscussCount
+                    categoryDiscussCountDiff
+                    certificationLevel
                 }
                 submitStats {
                     acSubmissionNum {
@@ -218,6 +232,12 @@ async def get_user_profile(username: str):
                         count
                         submissions
                     }
+                }
+                contestBadge {
+                    name
+                    expired
+                    hoverText
+                    icon
                 }
             }
         }"""
@@ -249,6 +269,9 @@ async def get_user_contest_history(username: str):
                 globalRanking
                 totalParticipants
                 topPercentage
+                badge {
+                    name
+                }
             }
             userContestRankingHistory(username: $username) {
                 attended
@@ -258,6 +281,10 @@ async def get_user_contest_history(username: str):
                 finishTimeInSeconds
                 rating
                 ranking
+                contest {
+                title
+                startTime
+                }
             }
         }"""
         
@@ -283,12 +310,25 @@ async def get_recent_submissions(username: str, limit: int = 20):
     async with httpx.AsyncClient() as client:
         query = """query recentSubmissions($username: String!, $limit: Int) {
             recentSubmissionList(username: $username, limit: $limit) {
+                id
                 title
                 titleSlug
                 timestamp
+                status
                 statusDisplay
                 lang
                 url
+                langName
+                runtime
+                isPending
+                memory
+                hasNotes
+                notes
+                flagType
+                frontendId
+                topicTags {
+                    id
+                }
             }
         }"""
         
@@ -321,7 +361,14 @@ async def get_daily_challenge():
                     questionFrontendId
                     title
                     titleSlug
+                    translatedTitle
                     difficulty
+                    acRate
+                    topicTags {
+                        name
+                        slug
+                        nameTranslated: translatedName
+                    }
                     content
                 }
             }
