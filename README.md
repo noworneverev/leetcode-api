@@ -46,7 +46,7 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 
 1. Clone the repo
     ```bash 
-    git clone https://github.com/yourusername/leetcode-api.git
+    git clone https://github.com/noworneverev/leetcode-api.git
     cd leetcode-api
     ```
 
