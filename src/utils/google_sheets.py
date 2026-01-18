@@ -5,7 +5,10 @@ from datetime import datetime
 import pytz
 import os
 from dotenv import load_dotenv
+import socket
+import time
 
+socket.setdefaulttimeout(300)
 load_dotenv()
 
 # Google Sheets configuration
@@ -123,7 +126,23 @@ def apply_sheet_formatting(service, rows_count, sheet_id=0):
         'hard': {'red': 1, 'green': 0, 'blue': 0}     # Red
     }
 
-    requests = [
+    initial_cleanup_requests = [
+        {
+            "clearBasicFilter": {
+                "sheetId": sheet_id
+            }
+        }
+    ]
+
+    try:
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"requests": initial_cleanup_requests}
+        ).execute()
+    except:
+        pass
+
+    basic_requests = [
         # Freeze header row (now row 2)
         {
             "updateSheetProperties": {
@@ -280,26 +299,7 @@ def apply_sheet_formatting(service, rows_count, sheet_id=0):
                 "fields": "pixelSize"
             }
         },
-        # Format the Like Ratio (%) column as a percentage.
-        {
-            "repeatCell": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startColumnIndex": 4,  # Column index for "Like Ratio (%)"
-                    "endColumnIndex": 5,
-                    "startRowIndex": 3      
-                },
-                "cell": {
-                    "userEnteredFormat": {
-                        "numberFormat": {
-                            "type": "PERCENT",
-                            "pattern": "0.0%"  # Display with one decimal place
-                        }
-                    }
-                },
-                "fields": "userEnteredFormat.numberFormat"
-            }
-        },      
+            
         {
             "repeatCell": {
                 "range": {
@@ -335,7 +335,10 @@ def apply_sheet_formatting(service, rows_count, sheet_id=0):
                     "strict": True
                 }
             }
-        },
+        }        
+    ]
+
+    heavy_requests = [
         # Set default value for cell O1 to "Python"
         {
             "repeatCell": {
@@ -390,20 +393,188 @@ def apply_sheet_formatting(service, rows_count, sheet_id=0):
                 },
                 "fields": "userEnteredValue"
             }
-        }  
+        },
+        # Format the Like Ratio (%) column as a percentage.
+        {
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startColumnIndex": 4,  # Column index for "Like Ratio (%)"
+                    "endColumnIndex": 5,
+                    # "startRowIndex": 3      
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {
+                            "type": "PERCENT",
+                            "pattern": "0.0%"  # Display with one decimal place
+                        },
+                        "horizontalAlignment": "RIGHT"
+                    }
+                },
+                "fields": "userEnteredFormat(numberFormat,horizontalAlignment)"
+            }
+        }
     ]
 
     service.spreadsheets().batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
-        body={"requests": requests}
+        body={"requests": basic_requests}
+    ).execute()
+    time.sleep(2)
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=SPREADSHEET_ID,
+        body={"requests": heavy_requests}
     ).execute()
 
+# def update_google_sheet(service, data, sheet_id=0):
+#     """Update Google Sheet with prepared data"""
+#     tz = pytz.timezone('Europe/Berlin')
+#     now_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M %Z")
+#     sheet_name = SHEET_ID_TO_NAME.get(sheet_id, TEST_SHEET_NAME)
+#     # Update spreadsheet name
+#     service.spreadsheets().batchUpdate(
+#         spreadsheetId=SPREADSHEET_ID,
+#         body={
+#             "requests": [{
+#                 "updateSpreadsheetProperties": {
+#                     "properties": {"title": f"LeetCode Questions - Last Updated {now_str}"},
+#                     "fields": "title"
+#                 }
+#             }]
+#         }
+#     ).execute()
+
+#     # Clear and update data
+#     clear_request = {
+#     "requests": [{
+#             "repeatCell": {
+#                 "range": {
+#                     "sheetId": sheet_id,
+#                     "startRowIndex": 0,
+#                     "endRowIndex": 10000,  # Adjust row count as needed
+#                     "startColumnIndex": 0,
+#                     "endColumnIndex": 26  # Columns A-Z
+#                 },
+#                 "cell": {
+#                     "userEnteredFormat": {}  # Reset formatting
+#                 },
+#                 "fields": "userEnteredFormat"  # Clear all formatting properties
+#             }
+#         }]
+#     }
+
+#     service.spreadsheets().batchUpdate(
+#     spreadsheetId=SPREADSHEET_ID,
+#         body=clear_request
+#     ).execute()
+    
+#     service.spreadsheets().values().clear(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!A:Z"
+#     ).execute()
+    
+#     # Add info row at row 1
+#     total_problems = len(data) - 1  # Subtract 1 since the first row of `data` is the header.    
+#     info_row1 = [f"🧩 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")']
+#     info_row2 = [f"🕰️ Last Updated: {now_str}", "", "", '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow/Connect with me on LinkedIn")']
+#     info_row3 = ['Choose the Programming Language for the Prompt']
+#     info_row4 = ['Choose the Language for the Answer']
+    
+#     service.spreadsheets().values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!A1:D1",
+#         valueInputOption='USER_ENTERED',
+#         body={"values": [info_row1]}
+#     ).execute()    
+
+#     service.spreadsheets().values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!A2:D2",
+#         valueInputOption='USER_ENTERED',
+#         body={"values": [info_row2]}
+#     ).execute()    
+
+#     service.spreadsheets().values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!N1:N1",
+#         valueInputOption='USER_ENTERED',
+#         body={"values": [info_row3]}
+#     ).execute()   
+
+#     service.spreadsheets().values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!N2:N2",
+#         valueInputOption='USER_ENTERED',
+#         body={"values": [info_row4]}
+#     ).execute()   
+    
+#     # Main data starting at row 3
+#     service.spreadsheets().values().update(
+#         spreadsheetId=SPREADSHEET_ID,
+#         range=f"'{sheet_name}'!A3",
+#         valueInputOption='USER_ENTERED',
+#         body={"values": data}
+#     ).execute()
+    
+#     apply_sheet_formatting(service, len(data)+2, sheet_id=sheet_id)  # +2 for info row
+
 def update_google_sheet(service, data, sheet_id=0):
-    """Update Google Sheet with prepared data"""
+    """
+    Update Google Sheet with prepared data and complete cleanup.
+    Ensures that existing conditional formatting rules and filters are removed 
+    before applying new ones to avoid API errors on Sheet ID 0.
+    """
     tz = pytz.timezone('Europe/Berlin')
     now_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M %Z")
     sheet_name = SHEET_ID_TO_NAME.get(sheet_id, TEST_SHEET_NAME)
-    # Update spreadsheet name
+
+    print(f"Starting update for sheet: {sheet_name} (ID: {sheet_id})...")
+
+    # --- Step 1: Fetch metadata to identify existing rules ---
+    # This is crucial for cleaning up ID=0 which might have hit the rule limit
+    spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+    current_sheet = next(s for s in spreadsheet['sheets'] if s['properties']['sheetId'] == sheet_id)
+    
+    cleanup_requests = []
+
+    # 1.1 Remove all existing conditional formatting rules
+    # This prevents the 500-rule limit error commonly found in long-running sheets
+    existing_rules = current_sheet.get('conditionalFormats', [])
+    if existing_rules:
+        # Delete rules in reverse order to maintain correct indexing
+        for i in range(len(existing_rules) - 1, -1, -1):
+            cleanup_requests.append({"deleteConditionalFormatRule": {"sheetId": sheet_id, "index": i}})
+
+    # 1.2 Clear any existing basic filters to avoid range conflicts
+    cleanup_requests.append({"clearBasicFilter": {"sheetId": sheet_id}})
+
+    # 1.3 Reset all cell formatting to default
+    cleanup_requests.append({
+        "repeatCell": {
+            "range": {
+                "sheetId": sheet_id,
+                "startRowIndex": 0,
+                "endRowIndex": 10000,
+                "startColumnIndex": 0,
+                "endColumnIndex": 26
+            },
+            "cell": {"userEnteredFormat": {}},
+            "fields": "userEnteredFormat"
+        }
+    })
+
+    # Execute cleanup batch
+    try:
+        service.spreadsheets().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"requests": cleanup_requests}
+        ).execute()
+        print("Existing formatting, filters, and rules cleared successfully.")
+    except Exception as e:
+        print(f"Cleanup notice (safe to ignore if sheet was empty): {e}")
+
+    # --- Step 2: Update the overall Spreadsheet Title ---
     service.spreadsheets().batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
         body={
@@ -416,76 +587,45 @@ def update_google_sheet(service, data, sheet_id=0):
         }
     ).execute()
 
-    # Clear and update data
-    clear_request = {
-    "requests": [{
-            "repeatCell": {
-                "range": {
-                    "sheetId": sheet_id,
-                    "startRowIndex": 0,
-                    "endRowIndex": 10000,  # Adjust row count as needed
-                    "startColumnIndex": 0,
-                    "endColumnIndex": 26  # Columns A-Z
-                },
-                "cell": {
-                    "userEnteredFormat": {}  # Reset formatting
-                },
-                "fields": "userEnteredFormat"  # Clear all formatting properties
-            }
-        }]
-    }
-
-    service.spreadsheets().batchUpdate(
-    spreadsheetId=SPREADSHEET_ID,
-        body=clear_request
-    ).execute()
-    
+    # --- Step 3: Clear cell values and write new data ---
+    # Wipe the sheet content
     service.spreadsheets().values().clear(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{sheet_name}'!A:Z"
     ).execute()
-    
-    # Add info row at row 1
-    total_problems = len(data) - 1  # Subtract 1 since the first row of `data` is the header.    
-    info_row1 = [f"🧩 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")']
-    info_row2 = [f"🕰️ Last Updated: {now_str}", "", "", '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow/Connect with me on LinkedIn")']
-    info_row3 = ['Choose the Programming Language for the Prompt']
-    info_row4 = ['Choose the Language for the Answer']
-    
-    service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"'{sheet_name}'!A1:D1",
-        valueInputOption='USER_ENTERED',
-        body={"values": [info_row1]}
-    ).execute()    
 
-    service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"'{sheet_name}'!A2:D2",
-        valueInputOption='USER_ENTERED',
-        body={"values": [info_row2]}
-    ).execute()    
-
-    service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"'{sheet_name}'!N1:N1",
-        valueInputOption='USER_ENTERED',
-        body={"values": [info_row3]}
-    ).execute()   
-
-    service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"'{sheet_name}'!N2:N2",
-        valueInputOption='USER_ENTERED',
-        body={"values": [info_row4]}
-    ).execute()   
+    # Prepare info headers
+    total_problems = len(data) - 1
+    info_rows = [
+        [f"🧩 Total Problems: {total_problems}", "", "", '=HYPERLINK("https://github.com/noworneverev/leetcode-api", "⭐ Star me on GitHub")'],
+        [f"🕰️ Last Updated: {now_str}", "", "", '=HYPERLINK("https://www.linkedin.com/in/yan-ying-liao/", "🦙 Follow/Connect with me on LinkedIn")']
+    ]
     
-    # Main data starting at row 3
+    # Update Metadata Rows (A1:D2)
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_name}'!A1:D2",
+        valueInputOption='USER_ENTERED',
+        body={"values": info_rows}
+    ).execute()
+
+    # Update LLM Prompt instructions (N1:N2)
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_name}'!N1:N2",
+        valueInputOption='USER_ENTERED',
+        body={"values": [['Choose the Programming Language for the Prompt'], ['Choose the Language for the Answer']]}
+    ).execute()
+
+    # Write main data starting from row 3
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{sheet_name}'!A3",
         valueInputOption='USER_ENTERED',
         body={"values": data}
     ).execute()
-    
-    apply_sheet_formatting(service, len(data)+2, sheet_id=sheet_id)  # +2 for info row
+
+    # --- Step 4: Re-apply visual formatting ---
+    print("Applying visual formatting and conditional rules...")
+    apply_sheet_formatting(service, len(data) + 2, sheet_id=sheet_id)
+    print(f"Sheet '{sheet_name}' update completed successfully.")
