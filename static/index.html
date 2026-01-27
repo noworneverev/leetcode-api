@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LeetCode Explorer - Browse, Search & Filter All LeetCode Problems</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description"
+        content="Explore all 3000+ LeetCode problems with advanced filtering, sorting by likes, difficulty levels, and topics. Free API access to LeetCode question data.">
+    <meta name="keywords"
+        content="LeetCode, coding problems, algorithm practice, interview preparation, programming challenges, DSA, data structures, competitive programming">
+    <meta name="author" content="Yan-Ying Liao">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://leetcode-api.vercel.app/">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://leetcode-api.vercel.app/">
+    <meta property="og:title" content="LeetCode Explorer - Browse All LeetCode Problems">
+    <meta property="og:description"
+        content="Explore all 3000+ LeetCode problems with advanced filtering, sorting by likes, and topic tags. Free API access included.">
+    <meta property="og:image" content="https://leetcode-api.vercel.app/static/og-image.png">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://leetcode-api.vercel.app/">
+    <meta name="twitter:title" content="LeetCode Explorer - Browse All LeetCode Problems">
+    <meta name="twitter:description"
+        content="Explore all 3000+ LeetCode problems with advanced filtering, sorting by likes, and topic tags.">
+
+    <!-- Favicon - Code icon in brand colors -->
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <meta name="theme-color" content="#ffa116">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: { 900: '#0a0a0a', 850: '#121212', 800: '#1a1a1a', 700: '#262626', 600: '#363636' },
+                        brand: { 50: '#fff7ed', 500: '#ffa116', 600: '#e59113', 900: '#7c2d12' },
+                        lc: { easy: '#00b8a3', medium: '#ffc01e', hard: '#ff375f' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@tanstack/react-table@8.10.7/build/umd/index.production.js"></script>
+    <script src="https://unpkg.com/@tanstack/react-virtual@3.0.0-beta.54/build/umd/index.production.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #666;
+            border-radius: 4px;
+        }
+
+        .cell {
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+
+        @media (max-width: 640px) {
+            .cell {
+                padding: 8px 8px;
+                font-size: 13px;
+            }
+        }
+
+        /* Dark mode select dropdown fix */
+        .dark select {
+            color-scheme: dark;
+        }
+
+        .dark select option {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+        }
+
+        select:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(255, 161, 22, 0.3);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 text-gray-900 dark:bg-dark-900 dark:text-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+        const { useReactTable, getCoreRowModel, getFilteredRowModel, getSortedRowModel, flexRender, createColumnHelper } = ReactTable;
+        const { useVirtualizer } = ReactVirtual;
+
+        function DebouncedInput({ value: initialValue, onChange, debounce = 300, ...props }) {
+            const [value, setValue] = useState(initialValue);
+            useEffect(() => setValue(initialValue), [initialValue]);
+            useEffect(() => { const t = setTimeout(() => onChange(value), debounce); return () => clearTimeout(t); }, [value]);
+            return <input {...props} value={value} onChange={e => setValue(e.target.value)} />;
+        }
+
+        function SelectFilter({ column, options, label, icon }) {
+            if (!column) return null;
+            const filterValue = column.getFilterValue();
+            const hasValue = filterValue != null && filterValue !== '';
+            return (
+                <div className="relative">
+                    <select
+                        value={filterValue ?? ''}
+                        onChange={e => column.setFilterValue(e.target.value || undefined)}
+                        className={`appearance-none pl-8 pr-8 py-2 text-sm rounded-lg border transition-all cursor-pointer
+                            ${hasValue
+                                ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300 font-medium'
+                                : 'border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-200 hover:border-gray-400 dark:hover:border-dark-500'
+                            }`}
+                    >
+                        <option value="">All {label}</option>
+                        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <i className={`${icon} absolute left-2.5 top-1/2 -translate-y-1/2 text-xs ${hasValue ? 'text-brand-500' : 'text-gray-400'}`}></i>
+                    <i className="fas fa-chevron-down absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none"></i>
+                </div>
+            );
+        }
+
+        function ColumnDropdown({ table }) {
+            const [open, setOpen] = useState(false);
+            const allColumns = table.getAllLeafColumns();
+
+            return (
+                <div className="relative">
+                    <button onClick={() => setOpen(!open)} className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-dark-600">
+                        <i className="fas fa-columns"></i>
+                        <span className="hidden sm:inline">Columns</span>
+                        <i className={`fas fa-chevron-down text-xs transition-transform ${open ? 'rotate-180' : ''}`}></i>
+                    </button>
+                    {open && <>
+                        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}></div>
+                        <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-dark-800 rounded-xl shadow-2xl border border-gray-200 dark:border-dark-600 z-50 py-2 max-h-80 overflow-y-auto">
+                            <div className="px-3 py-2 border-b border-gray-100 dark:border-dark-700">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={table.getIsAllColumnsVisible()}
+                                        onChange={table.getToggleAllColumnsVisibilityHandler()}
+                                        className="rounded border-gray-300"
+                                    />
+                                    <span className="text-sm font-semibold">Show All</span>
+                                </label>
+                            </div>
+                            {allColumns.map(col => (
+                                <label key={col.id} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-700 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={col.getIsVisible()}
+                                        onChange={col.getToggleVisibilityHandler()}
+                                        className="rounded border-gray-300"
+                                    />
+                                    <span className="text-sm">{col.columnDef.meta?.label || col.id}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </>}
+                </div>
+            );
+        }
+
+        function App() {
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [loadingProgress, setLoadingProgress] = useState(0);
+            const [loadingStatus, setLoadingStatus] = useState('Connecting...');
+            const [error, setError] = useState(null);
+            const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches));
+            const [globalFilter, setGlobalFilter] = useState('');
+            const [columnFilters, setColumnFilters] = useState([]);
+            const [sorting, setSorting] = useState([{ id: 'likes', desc: true }]);
+            const [columnVisibility, setColumnVisibility] = useState({
+                frontendId: true, title: true, likes: true, dislikes: true, likeRatio: true, topicTags: true, difficulty: true, paidOnly: true,
+                accepted: false, submissions: false, acRate: false, hasSolution: false, hasVideoSolution: false, category: false,
+            });
+
+            useEffect(() => {
+                document.documentElement.classList.toggle('dark', darkMode);
+                localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+            }, [darkMode]);
+
+            useEffect(() => {
+                (async () => {
+                    try {
+                        setLoadingStatus('Downloading data...');
+                        // Fetch from raw GitHub URL (updates daily)
+                        const res = await fetch('https://raw.githubusercontent.com/noworneverev/leetcode-api/main/data/leetcode_questions.json');
+                        if (!res.ok) throw new Error('Failed to fetch');
+
+                        // Get content length for progress
+                        const contentLength = res.headers.get('content-length');
+                        const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+                        let loaded = 0;
+                        const reader = res.body.getReader();
+                        const chunks = [];
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            chunks.push(value);
+                            loaded += value.length;
+                            if (total > 0) {
+                                const percent = Math.round((loaded / total) * 100);
+                                setLoadingProgress(percent);
+                                setLoadingStatus(`Downloading... ${(loaded / 1024 / 1024).toFixed(1)} MB`);
+                            }
+                        }
+
+                        // Combine chunks and decode
+                        setLoadingStatus('Processing data...');
+                        setLoadingProgress(100);
+                        const allChunks = new Uint8Array(loaded);
+                        let position = 0;
+                        for (const chunk of chunks) {
+                            allChunks.set(chunk, position);
+                            position += chunk.length;
+                        }
+                        const jsonText = new TextDecoder().decode(allChunks);
+                        const json = JSON.parse(jsonText);
+
+                        const arr = Array.isArray(json) ? json : Object.values(json);
+                        setData(arr.map(item => {
+                            const q = item.data?.question || item;
+                            let stats = {};
+                            try { if (q.stats) stats = JSON.parse(q.stats); } catch { }
+                            const likes = q.likes || 0, dislikes = q.dislikes || 0;
+                            return {
+                                id: q.questionId,
+                                frontendId: q.questionFrontendId,
+                                title: q.title,
+                                slug: q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : ''),
+                                difficulty: q.difficulty,
+                                paidOnly: q.paidOnly || q.isPaidOnly || false,
+                                hasSolution: q.hasSolution || false,
+                                hasVideoSolution: q.hasVideoSolution || false,
+                                likes,
+                                dislikes,
+                                likeRatio: likes + dislikes > 0 ? ((likes / (likes + dislikes)) * 100).toFixed(1) : '0.0',
+                                acRate: stats.acRate || null,
+                                accepted: stats.totalAccepted || null,
+                                submissions: stats.totalSubmission || null,
+                                topicTags: (q.topicTags || []).map(t => t.name),
+                                category: q.categoryTitle || '',
+                            };
+                        }).filter(q => q.id));
+                    } catch (e) { setError(e.message); } finally { setLoading(false); }
+                })();
+            }, []);
+
+            const columnHelper = createColumnHelper();
+
+            const columns = useMemo(() => [
+                columnHelper.accessor('frontendId', {
+                    id: 'frontendId',
+                    header: 'ID',
+                    cell: i => <span className="text-gray-500 font-mono text-sm">{i.getValue()}</span>,
+                    size: 70,
+                    meta: { label: 'ID' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('title', {
+                    id: 'title',
+                    header: 'Title',
+                    cell: i => {
+                        const slug = i.row.original.slug;
+                        const url = slug ? `https://leetcode.com/problems/${slug}/` : '#';
+                        return (
+                            <a href={url} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline font-medium text-sm truncate block">
+                                {i.getValue()}
+                            </a>
+                        );
+                    },
+                    size: 300,
+                    meta: { label: 'Title' },
+                    enableColumnFilter: true,
+                }),
+                columnHelper.accessor('likes', {
+                    id: 'likes',
+                    header: 'Likes',
+                    cell: i => <span className="text-green-600 dark:text-green-400 font-semibold text-sm">{(i.getValue() || 0).toLocaleString()}</span>,
+                    size: 95,
+                    meta: { label: 'Likes' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('dislikes', {
+                    id: 'dislikes',
+                    header: 'Dislikes',
+                    cell: i => <span className="text-red-500 font-semibold text-sm">{(i.getValue() || 0).toLocaleString()}</span>,
+                    size: 100,
+                    meta: { label: 'Dislikes' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('likeRatio', {
+                    id: 'likeRatio',
+                    header: 'Like Ratio',
+                    cell: i => {
+                        const v = parseFloat(i.getValue()) || 0;
+                        return <span className={`font-bold text-sm ${v >= 80 ? 'text-green-600' : v >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>{i.getValue()}%</span>;
+                    },
+                    size: 105,
+                    meta: { label: 'Like Ratio' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('topicTags', {
+                    id: 'topicTags',
+                    header: 'Topics',
+                    cell: i => {
+                        const t = i.getValue() || [];
+                        return (
+                            <div className="flex gap-1 overflow-hidden">
+                                {t.slice(0, 2).map((x, j) => <span key={j} className="shrink-0 px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{x}</span>)}
+                                {t.length > 2 && <span className="shrink-0 text-xs text-gray-400 ml-1">+{t.length - 2}</span>}
+                            </div>
+                        );
+                    },
+                    size: 220,
+                    meta: { label: 'Topics' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('difficulty', {
+                    id: 'difficulty',
+                    header: 'Difficulty',
+                    cell: i => {
+                        const d = i.getValue();
+                        const colors = { Easy: 'bg-lc-easy/15 text-lc-easy', Medium: 'bg-lc-medium/15 text-lc-medium', Hard: 'bg-lc-hard/15 text-lc-hard' };
+                        return <span className={`px-2 py-0.5 rounded text-xs font-bold ${colors[d] || ''}`}>{d}</span>;
+                    },
+                    size: 105,
+                    filterFn: 'equals',
+                    meta: { label: 'Difficulty' },
+                }),
+                columnHelper.accessor('accepted', {
+                    id: 'accepted',
+                    header: 'Accepted',
+                    cell: i => <span className="text-gray-600 dark:text-gray-400 text-sm">{i.getValue() || '-'}</span>,
+                    size: 110,
+                    meta: { label: 'Accepted' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('submissions', {
+                    id: 'submissions',
+                    header: 'Submissions',
+                    cell: i => <span className="text-gray-600 dark:text-gray-400 text-sm">{i.getValue() || '-'}</span>,
+                    size: 120,
+                    meta: { label: 'Submissions' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('acRate', {
+                    id: 'acRate',
+                    header: 'AC Rate',
+                    cell: i => <span className="text-gray-600 dark:text-gray-400 text-sm">{i.getValue() || '-'}</span>,
+                    size: 100,
+                    meta: { label: 'AC Rate' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('paidOnly', {
+                    id: 'paidOnly',
+                    header: 'Access',
+                    cell: i => i.getValue()
+                        ? <span className="text-amber-600 dark:text-amber-400 text-xs font-semibold"><i className="fas fa-crown mr-1"></i>Pro</span>
+                        : <span className="text-green-600 dark:text-green-400 text-xs font-semibold">Free</span>,
+                    size: 85,
+                    filterFn: (row, columnId, filterValue) => {
+                        const val = row.getValue(columnId);
+                        if (filterValue === 'free') return val === false;
+                        if (filterValue === 'premium') return val === true;
+                        return true;
+                    },
+                    meta: { label: 'Access' },
+                }),
+                columnHelper.accessor('hasSolution', {
+                    id: 'hasSolution',
+                    header: 'Solution',
+                    cell: i => i.getValue()
+                        ? <span className="text-green-500"><i className="fas fa-check-circle"></i></span>
+                        : <span className="text-gray-300 dark:text-gray-600">—</span>,
+                    size: 90,
+                    filterFn: (row, columnId, filterValue) => {
+                        const val = row.getValue(columnId);
+                        if (filterValue === 'yes') return val === true;
+                        if (filterValue === 'no') return val === false;
+                        return true;
+                    },
+                    meta: { label: 'Solution' },
+                }),
+                columnHelper.accessor('hasVideoSolution', {
+                    id: 'hasVideoSolution',
+                    header: 'Video',
+                    cell: i => i.getValue()
+                        ? <span className="text-red-500"><i className="fab fa-youtube"></i></span>
+                        : <span className="text-gray-300 dark:text-gray-600">—</span>,
+                    size: 80,
+                    meta: { label: 'Video' },
+                    enableColumnFilter: false,
+                }),
+                columnHelper.accessor('category', {
+                    id: 'category',
+                    header: 'Category',
+                    cell: i => <span className="text-gray-600 dark:text-gray-400 text-sm">{i.getValue()}</span>,
+                    size: 115,
+                    meta: { label: 'Category' },
+                    enableColumnFilter: false,
+                }),
+            ], []);
+
+            const table = useReactTable({
+                data,
+                columns,
+                state: { globalFilter, columnFilters, sorting, columnVisibility },
+                onGlobalFilterChange: setGlobalFilter,
+                onColumnFiltersChange: setColumnFilters,
+                onSortingChange: setSorting,
+                onColumnVisibilityChange: setColumnVisibility,
+                getCoreRowModel: getCoreRowModel(),
+                getFilteredRowModel: getFilteredRowModel(),
+                getSortedRowModel: getSortedRowModel(),
+                globalFilterFn: 'includesString',
+            });
+
+            const { rows } = table.getRowModel();
+            const visibleCols = table.getVisibleLeafColumns();
+            const gridCols = visibleCols.map(c => `${c.getSize()}px`).join(' ');
+
+            const containerRef = useRef(null);
+            const rowVirtualizer = useVirtualizer({
+                count: rows.length,
+                getScrollElement: () => containerRef.current,
+                estimateSize: () => 44,
+                overscan: 20
+            });
+
+            const stats = useMemo(() => ({
+                total: data.length,
+                easy: data.filter(d => d.difficulty === 'Easy').length,
+                medium: data.filter(d => d.difficulty === 'Medium').length,
+                hard: data.filter(d => d.difficulty === 'Hard').length
+            }), [data]);
+
+            // Get columns for filters - ensure they exist
+            const difficultyColumn = table.getColumn('difficulty');
+            const paidOnlyColumn = table.getColumn('paidOnly');
+            const hasSolutionColumn = table.getColumn('hasSolution');
+
+            if (loading) return (
+                <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-dark-900">
+                    <div className="text-center">
+                        <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-500/30">
+                            <i className="fas fa-code text-white text-2xl"></i>
+                        </div>
+                        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">LeetCode Explorer</h2>
+                        <p className="text-gray-500 dark:text-gray-400 mb-6">{loadingStatus}</p>
+                        <div className="w-64 h-2 bg-gray-200 dark:bg-dark-700 rounded-full overflow-hidden mx-auto">
+                            <div
+                                className="h-full bg-gradient-to-r from-brand-500 to-orange-500 transition-all duration-300 ease-out rounded-full"
+                                style={{ width: `${loadingProgress}%` }}
+                            ></div>
+                        </div>
+                        <p className="text-sm text-gray-400 mt-3">{loadingProgress > 0 ? `${loadingProgress}%` : 'Starting...'}</p>
+                    </div>
+                </div>
+            );
+
+            if (error) return (
+                <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-dark-900 text-red-500">{error}</div>
+            );
+
+            return (
+                <div className="h-screen flex flex-col bg-gray-100 dark:bg-dark-900">
+                    {/* Header */}
+                    <header className="bg-white dark:bg-dark-850 border-b border-gray-200 dark:border-dark-700 px-3 sm:px-6 py-3">
+                        <div className="max-w-[1800px] mx-auto">
+                            {/* Top row */}
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-brand-500/20">
+                                        <i className="fas fa-code text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h1 className="text-lg sm:text-xl font-bold dark:text-white">LeetCode Explorer</h1>
+                                        <div className="text-xs text-gray-500 flex gap-2 sm:gap-3 flex-wrap items-center">
+                                            <span className="text-lc-easy">Easy: {stats.easy}</span>
+                                            <span className="text-lc-medium">Medium: {stats.medium}</span>
+                                            <span className="text-lc-hard">Hard: {stats.hard}</span>
+                                            <span className="text-gray-400 hidden sm:inline">| Total: {stats.total}</span>
+                                            <span className="text-green-500 hidden sm:inline-flex items-center gap-1" title="Data syncs daily from LeetCode">
+                                                | <i className="fas fa-check-circle"></i> Updated daily
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <a href="/docs" target="_blank" className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium shadow-lg shadow-brand-500/20 flex items-center gap-1.5">
+                                        <i className="fas fa-book"></i><span className="hidden sm:inline">API Docs</span>
+                                    </a>
+                                    <a href="https://docs.google.com/spreadsheets/d/1sRWp95wqo3a7lLBbtNd_3KkTyGjx_9sctTOL5JOb6pA" target="_blank" className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium shadow-lg shadow-green-600/20 flex items-center gap-1.5">
+                                        <i className="fas fa-table"></i><span className="hidden sm:inline">Sheet</span>
+                                    </a>
+                                    <button onClick={() => setDarkMode(!darkMode)} className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-dark-700 hover:bg-gray-200 dark:hover:bg-dark-600 flex items-center justify-center">
+                                        {darkMode ? <i className="fas fa-sun text-yellow-500"></i> : <i className="fas fa-moon text-gray-600"></i>}
+                                    </button>
+                                    <a href="https://github.com/noworneverev/leetcode-api" target="_blank" className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-dark-700 hover:bg-gray-200 dark:hover:bg-dark-600 flex items-center justify-center">
+                                        <i className="fab fa-github text-lg"></i>
+                                    </a>
+                                </div>
+                            </div>
+
+                            {/* Search & Filters row */}
+                            <div className="flex items-center gap-2 sm:gap-3 mt-3 flex-wrap">
+                                <div className="relative flex-1 min-w-[150px] max-w-md">
+                                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                    <DebouncedInput
+                                        type="text"
+                                        placeholder="Search problems..."
+                                        value={globalFilter ?? ''}
+                                        onChange={v => setGlobalFilter(String(v))}
+                                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none"
+                                    />
+                                </div>
+
+                                {difficultyColumn && (
+                                    <SelectFilter
+                                        column={difficultyColumn}
+                                        label="Difficulty"
+                                        icon="fas fa-signal"
+                                        options={[
+                                            { value: 'Easy', label: '🟢 Easy' },
+                                            { value: 'Medium', label: '🟡 Medium' },
+                                            { value: 'Hard', label: '🔴 Hard' }
+                                        ]}
+                                    />
+                                )}
+
+                                {paidOnlyColumn && (
+                                    <SelectFilter
+                                        column={paidOnlyColumn}
+                                        label="Access"
+                                        icon="fas fa-unlock-alt"
+                                        options={[
+                                            { value: 'free', label: '✓ Free Only' },
+                                            { value: 'premium', label: '👑 Premium' }
+                                        ]}
+                                    />
+                                )}
+
+                                {columnFilters.length > 0 && (
+                                    <button onClick={() => setColumnFilters([])} className="text-sm text-red-500 hover:text-red-600 font-medium">
+                                        <i className="fas fa-times mr-1"></i>Clear
+                                    </button>
+                                )}
+
+                                <div className="ml-auto flex items-center gap-2">
+                                    <span className="text-sm text-gray-500 hidden sm:block">{rows.length} results</span>
+                                    <ColumnDropdown table={table} />
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Table */}
+                    <main className="flex-1 overflow-hidden p-2 sm:p-4">
+                        <div className="h-full max-w-[1800px] mx-auto bg-white dark:bg-dark-850 rounded-xl border border-gray-200 dark:border-dark-700 shadow-sm flex flex-col overflow-hidden">
+                            {/* Fixed Header */}
+                            <div className="bg-gray-50 dark:bg-dark-800 border-b-2 border-gray-200 dark:border-dark-600 flex-shrink-0 overflow-x-auto"
+                                style={{ display: 'grid', gridTemplateColumns: gridCols, minWidth: 'max-content' }}>
+                                {table.getHeaderGroups()[0].headers.filter(h => h.column.getIsVisible()).map(h => (
+                                    <div key={h.id} onClick={h.column.getToggleSortingHandler()}
+                                        className="cell text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors">
+                                        <span>{h.column.columnDef.header}</span>
+                                        {h.column.getIsSorted() === 'asc' && <i className="fas fa-caret-up ml-1 text-brand-500"></i>}
+                                        {h.column.getIsSorted() === 'desc' && <i className="fas fa-caret-down ml-1 text-brand-500"></i>}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Scrollable Body */}
+                            <div ref={containerRef} className="flex-1 overflow-auto">
+                                <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', minWidth: 'max-content' }}>
+                                    {rowVirtualizer.getVirtualItems().map(vRow => {
+                                        const row = rows[vRow.index];
+                                        return (
+                                            <div key={row.id} data-index={vRow.index} ref={rowVirtualizer.measureElement}
+                                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vRow.start}px)`, display: 'grid', gridTemplateColumns: gridCols }}
+                                                className={`border-b border-gray-100 dark:border-dark-700/50 hover:bg-blue-50/80 dark:hover:bg-blue-900/10 transition-colors ${vRow.index % 2 ? 'bg-gray-50/50 dark:bg-dark-800/30' : ''}`}>
+                                                {row.getVisibleCells().map(cell => (
+                                                    <div key={cell.id} className="cell">{flexRender(cell.column.columnDef.cell, cell.getContext())}</div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {rows.length === 0 && (
+                                    <div className="p-12 text-center">
+                                        <i className="fas fa-search text-4xl text-gray-300 dark:text-gray-600 mb-3"></i>
+                                        <p className="text-gray-500 text-lg">No problems found</p>
+                                        <button onClick={() => { setGlobalFilter(''); setColumnFilters([]); }} className="mt-3 text-brand-500 hover:text-brand-600 font-medium">
+                                            Clear all filters
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="bg-white dark:bg-dark-850 border-t border-gray-200 dark:border-dark-700 py-3 text-center text-sm text-gray-500">
+                        Made with <span className="text-red-500">❤️</span> by <a href="https://github.com/noworneverev" target="_blank" rel="noopener noreferrer" className="text-brand-500 hover:underline font-medium">Yan-Ying Liao</a>
+                    </footer>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+
+</html>
