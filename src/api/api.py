@@ -5,10 +5,17 @@ import httpx
 from typing import Dict
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 import random
+import os
 
-app = FastAPI()
+# Determine base directory for static files
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+data_dir = os.path.join(base_dir, "data")
+static_dir = os.path.join(base_dir, "static")
+
 leetcode_url = "https://leetcode.com/graphql"
 client = httpx.AsyncClient()
 
@@ -74,6 +81,18 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+# Add gzip compression - will compress responses > 500 bytes
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# Mount static files AFTER app is created with lifespan
+if os.path.exists(data_dir):
+    print(f"Mounting data directory: {data_dir}")
+    app.mount("/data", StaticFiles(directory=data_dir), name="data")
+else:
+    print(f"WARNING: Data directory not found at {data_dir}")
+
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 async def fetch_with_retry(url: str, payload: dict, retries: int = 3):
     for _ in range(retries):
@@ -392,8 +411,7 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home():
-    from src.api.home import HOME_PAGE_HTML
-    return HOME_PAGE_HTML 
+    return FileResponse('static/index.html') 
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
