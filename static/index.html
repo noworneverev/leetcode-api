@@ -236,8 +236,9 @@
                             if (done) break;
                             chunks.push(value);
                             loaded += value.length;
+                            // Note: content-length may be compressed size, so cap at 100%
                             if (total > 0) {
-                                const percent = Math.round((loaded / total) * 100);
+                                const percent = Math.min(100, Math.round((loaded / total) * 100));
                                 setLoadingProgress(percent);
                                 setLoadingStatus(`Downloading... ${(loaded / 1024 / 1024).toFixed(1)} MB`);
                             }
