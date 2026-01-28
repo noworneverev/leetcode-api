@@ -219,8 +219,8 @@
                 (async () => {
                     try {
                         setLoadingStatus('Downloading data...');
-                        // Fetch from raw GitHub URL (updates daily)
-                        const res = await fetch('https://raw.githubusercontent.com/noworneverev/leetcode-api/main/data/leetcode_questions.json');
+                        // Fetch from local data path (faster - uses same-origin, Vercel CDN when deployed)
+                        const res = await fetch('/data/leetcode_questions.json');
                         if (!res.ok) throw new Error('Failed to fetch');
 
                         // Get content length for progress
