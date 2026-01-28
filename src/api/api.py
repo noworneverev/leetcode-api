@@ -1,12 +1,15 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from collections import OrderedDict
 import httpx
 from typing import Dict
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import random
 import os
@@ -17,14 +20,42 @@ data_dir = os.path.join(base_dir, "data")
 static_dir = os.path.join(base_dir, "static")
 
 leetcode_url = "https://leetcode.com/graphql"
-client = httpx.AsyncClient()
+# Global client with timeout to prevent hanging requests
+client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+
+class LRUCache:
+    """Simple LRU cache with max size to prevent unbounded memory growth."""
+    def __init__(self, max_size: int = 500):
+        self._cache: OrderedDict = OrderedDict()
+        self._max_size = max_size
+    
+    def get(self, key: str):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+    
+    def set(self, key: str, value: dict):
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._max_size:
+                self._cache.popitem(last=False)
+        self._cache[key] = value
+    
+    def __contains__(self, key: str):
+        return key in self._cache
+    
+    def __len__(self):
+        return len(self._cache)
+
 
 class QuestionCache:
     def __init__(self):
         self.questions: Dict[str, dict] = {}
         self.slug_to_id: Dict[str, str] = {}
         self.frontend_id_to_slug: Dict[str, str] = {}
-        self.question_details: Dict[str, dict] = {}
+        self.question_details = LRUCache(max_size=500)  # LRU cache to limit memory
         self.last_updated: float = 0
         self.update_interval: int = 3600
         self.lock = asyncio.Lock()
@@ -36,13 +67,14 @@ class QuestionCache:
                 self.last_updated = time.time()
 
     async def _fetch_all_questions(self):
-        query = """query problemsetQuestionList {
+        query = """query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
             problemsetQuestionList: questionList(
-                categorySlug: ""
-                limit: 10000
-                skip: 0
-                filters: {}
+                categorySlug: $categorySlug
+                limit: $limit
+                skip: $skip
+                filters: $filters
             ) {
+                total: totalNum
                 questions: data {
                     questionId
                     questionFrontendId
@@ -57,19 +89,64 @@ class QuestionCache:
         }"""
         
         try:
-            response = await client.post(leetcode_url, json={"query": query})
-            if response.status_code == 200:
+            # Build to temp dicts first for atomic swap (prevents empty results during refresh)
+            temp_questions: Dict[str, dict] = {}
+            temp_slug_to_id: Dict[str, str] = {}
+            temp_frontend_id_to_slug: Dict[str, str] = {}
+            
+            limit_per_request = 100  # LeetCode API caps at 100 per request
+            skip = 0
+            total_questions = -1
+            
+            while True:
+                variables = {
+                    "categorySlug": "",
+                    "limit": limit_per_request,
+                    "skip": skip,
+                    "filters": {}
+                }
+                payload = {
+                    "query": query,
+                    "variables": variables
+                }
+                
+                response = await client.post(leetcode_url, json=payload)
+                if response.status_code != 200:
+                    print(f"Failed to fetch list at skip {skip}. Status code: {response.status_code}")
+                    break
+                    
                 data = response.json()
-                questions = data["data"]["problemsetQuestionList"]["questions"]
+                res_list = data["data"]["problemsetQuestionList"]
+                questions_batch = res_list["questions"]
+                total_questions = res_list["total"]
                 
-                self.questions.clear()
-                self.slug_to_id.clear()
-                self.frontend_id_to_slug.clear()
+                if not questions_batch:
+                    break
+                    
+                for q in questions_batch:
+                    temp_questions[q["questionId"]] = q
+                    temp_slug_to_id[q["titleSlug"]] = q["questionId"]
+                    temp_frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]
                 
-                for q in questions:
-                    self.questions[q["questionId"]] = q
-                    self.slug_to_id[q["titleSlug"]] = q["questionId"]
-                    self.frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]                    
+                print(f"Fetched questions: {len(temp_questions)} / {total_questions}")
+                
+                skip += limit_per_request
+                
+                # Break loop if all questions are fetched
+                if len(temp_questions) >= total_questions:
+                    break
+                    
+                # Small delay to avoid aggressive polling
+                await asyncio.sleep(0.3)
+            
+            # Atomic swap - only replace if we got data
+            if temp_questions:
+                self.questions = temp_questions
+                self.slug_to_id = temp_slug_to_id
+                self.frontend_id_to_slug = temp_frontend_id_to_slug
+                print(f"Successfully cached {len(self.questions)} questions.")
+            else:
+                print("Warning: No questions fetched, keeping existing cache.")
         except Exception as e:
             print(f"Error updating questions: {e}")
 
@@ -79,8 +156,19 @@ cache = QuestionCache()
 async def lifespan(app: FastAPI):
     await cache.initialize()
     yield
+    # Cleanup: close the HTTP client on shutdown
+    await client.aclose()
 
 app = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware for public API access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Add gzip compression - will compress responses > 500 bytes
 app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -133,8 +221,9 @@ async def get_problem(id_or_slug: str):
 
     # check cache
     question_id = cache.slug_to_id[slug]
-    if question_id in cache.question_details:
-        return cache.question_details[question_id]
+    cached = cache.question_details.get(question_id)
+    if cached:
+        return cached
 
     # not in cache, fetch from leetcode
     query = """query questionData($titleSlug: String!) {
@@ -171,7 +260,7 @@ async def get_problem(id_or_slug: str):
     question_data = data["data"]["question"]
     question_data["url"] = f"https://leetcode.com/problems/{slug}/"
         
-    cache.question_details[question_id] = question_data
+    cache.question_details.set(question_id, question_data)
     return question_data
 
 @app.get("/search", tags=["Problems"])
@@ -212,7 +301,7 @@ async def get_random_problem():
 
 @app.get("/user/{username}", tags=["Users"])
 async def get_user_profile(username: str):
-    async with httpx.AsyncClient() as client:
+    try:
         query = """query userPublicProfile($username: String!) {
             matchedUser(username: $username) {
                 username
@@ -267,20 +356,21 @@ async def get_user_profile(username: str):
             "operationName": "userPublicProfile"
         }
         
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                if not data.get("data", {}).get("matchedUser"):
-                    raise HTTPException(status_code=404, detail="User not found")
-                return data["data"]["matchedUser"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching user profile")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("data", {}).get("matchedUser"):
+                raise HTTPException(status_code=404, detail="User not found")
+            return data["data"]["matchedUser"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching user profile")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/user/{username}/contests", tags=["Users"])
 async def get_user_contest_history(username: str):
-    async with httpx.AsyncClient() as client:
+    try:
         query = """query userContestRankingInfo($username: String!) {
             userContestRanking(username: $username) {
                 attendedContestsCount
@@ -313,20 +403,21 @@ async def get_user_contest_history(username: str):
             "operationName": "userContestRankingInfo"
         }
         
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                if not data.get("data"):
-                    raise HTTPException(status_code=404, detail="User not found")
-                return data["data"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching contest history")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("data"):
+                raise HTTPException(status_code=404, detail="User not found")
+            return data["data"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching contest history")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/user/{username}/submissions", tags=["Users"])
-async def get_recent_submissions(username: str, limit: int = 20):
-    async with httpx.AsyncClient() as client:
+async def get_recent_submissions(username: str, limit: int = Query(default=20, ge=1, le=100)):
+    try:
         query = """query recentSubmissions($username: String!, $limit: Int) {
             recentSubmissionList(username: $username, limit: $limit) {
                 id
@@ -356,21 +447,22 @@ async def get_recent_submissions(username: str, limit: int = 20):
             "variables": {"username": username, "limit": limit}
         }
         
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                if "errors" in data:
-                    raise HTTPException(status_code=404, detail="User not found")
-                return data["data"]["recentSubmissionList"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching submissions")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if "errors" in data:
+                raise HTTPException(status_code=404, detail="User not found")
+            return data["data"]["recentSubmissionList"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching submissions")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/daily", tags=["Daily Challenge"])
 async def get_daily_challenge():
-    async with httpx.AsyncClient() as client:
+    try:
         query = """query questionOfToday {
             activeDailyCodingChallengeQuestion {
                 date
@@ -395,23 +487,30 @@ async def get_daily_challenge():
         
         payload = {"query": query}
         
-        try:
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code == 200:
-                data = response.json()
-                return data["data"]["activeDailyCodingChallengeQuestion"]
-            raise HTTPException(status_code=response.status_code, detail="Error fetching daily challenge")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            return data["data"]["activeDailyCodingChallengeQuestion"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching daily challenge")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health", tags=["Utility"])
 async def health_check():
-    return {"status": "ok", "timestamp": time.time()}
+    return {
+        "status": "ok",
+        "timestamp": time.time(),
+        "questions_cached": len(cache.questions),
+        "details_cached": len(cache.question_details),
+        "cache_age_seconds": int(time.time() - cache.last_updated) if cache.last_updated else None
+    }
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home():
-    return FileResponse('static/index.html') 
+    return FileResponse(os.path.join(static_dir, 'index.html')) 
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
