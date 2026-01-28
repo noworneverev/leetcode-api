@@ -59,12 +59,97 @@ class QuestionCache:
         self.last_updated: float = 0
         self.update_interval: int = 3600
         self.lock = asyncio.Lock()
+        self.data_file_path = os.path.join(data_dir, "leetcode_questions.json")
 
     async def initialize(self):
         async with self.lock:
+            # First try to load from file if we haven't already
+            if not self.questions:
+                if self._load_from_file():
+                    print("Initialized cache from local file.")
+                    self.last_updated = time.time()
+                else:
+                    print("Local cache file not found or invalid. Fetching from API.")
+
+            # If still empty or outdated (and we are not on Vercel or we want to update), try to fetch
+            # Note: On Vercel we might want to rely solely on the file to avoid timeouts, 
+            # but if the file is missing we have no choice but to try fetching.
             if not self.questions or (time.time() - self.last_updated) > self.update_interval:
                 await self._fetch_all_questions()
-                self.last_updated = time.time()
+                # self.last_updated is set in _fetch_all_questions now
+
+    def _load_from_file(self) -> bool:
+        """Load questions from local JSON file."""
+        import json
+        try:
+            if not os.path.exists(self.data_file_path):
+                return False
+            
+            with open(self.data_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # The file format from inspection seems to be a list of objects, 
+            # where each object has "data" -> "question" -> fields
+            # We need to parse this into our internal format
+            temp_questions: Dict[str, dict] = {}
+            temp_slug_to_id: Dict[str, str] = {}
+            temp_frontend_id_to_slug: Dict[str, str] = {}
+            
+            count = 0
+            for item in data:
+                # Handle both raw format from LeetCode API (wrapped in 'data.question') 
+                # and potentially our processed format if we saved it differently?
+                # Looking at the provided file content, it is:
+                # [ { "data": { "question": { ... } } }, ... ]
+                
+                q = None
+                if "data" in item and "question" in item["data"]:
+                    q = item["data"]["question"]
+                elif "questionId" in item:
+                    # In case we save it in a simplified format later, support that too
+                    q = item
+                
+                if q:
+                    # Normalized fields map
+                    title_slug = q.get("titleSlug")
+                    if not title_slug and q.get("url"):
+                        # Extract slug from url: https://leetcode.com/problems/two-sum/ -> two-sum
+                        parts = q.get("url").strip("/").split("/")
+                        if parts:
+                            title_slug = parts[-1]
+                    
+                    q_data = {
+                        "questionId": q.get("questionId"),
+                        "questionFrontendId": q.get("questionFrontendId"),
+                        "title": q.get("title"),
+                        "titleSlug": title_slug,
+                        "difficulty": q.get("difficulty"),
+                        "paidOnly": q.get("isPaidOnly") or q.get("paidOnly", False),
+                        "hasSolution": q.get("hasSolution", False),
+                        "hasVideoSolution": q.get("hasVideoSolution", False)
+                    }
+                    
+                    # Ensure minimal required fields
+                    if q_data["questionId"] and q_data["titleSlug"]:
+
+
+                        temp_questions[q_data["questionId"]] = q_data
+                        temp_slug_to_id[q_data["titleSlug"]] = q_data["questionId"]
+                        if q_data["questionFrontendId"]:
+                            temp_frontend_id_to_slug[q_data["questionFrontendId"]] = q_data["titleSlug"]
+                        count += 1
+            
+            if count > 0:
+                self.questions = temp_questions
+                self.slug_to_id = temp_slug_to_id
+                self.frontend_id_to_slug = temp_frontend_id_to_slug
+                print(f"Loaded {count} questions from {self.data_file_path}")
+                return True
+                
+        except Exception as e:
+            print(f"Error loading from file: {e}")
+        
+        return False
 
     async def _fetch_all_questions(self):
         query = """query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
@@ -98,6 +183,8 @@ class QuestionCache:
             skip = 0
             total_questions = -1
             
+            print("Starting to fetch all questions from LeetCode API...")
+            
             while True:
                 variables = {
                     "categorySlug": "",
@@ -110,41 +197,52 @@ class QuestionCache:
                     "variables": variables
                 }
                 
-                response = await client.post(leetcode_url, json=payload)
-                if response.status_code != 200:
-                    print(f"Failed to fetch list at skip {skip}. Status code: {response.status_code}")
-                    break
+                try:
+                    response = await client.post(leetcode_url, json=payload)
+                    if response.status_code != 200:
+                        print(f"Failed to fetch list at skip {skip}. Status code: {response.status_code}")
+                        break
+                        
+                    data = response.json()
+                    res_list = data["data"]["problemsetQuestionList"]
+                    questions_batch = res_list["questions"]
+                    total_questions = res_list["total"]
                     
-                data = response.json()
-                res_list = data["data"]["problemsetQuestionList"]
-                questions_batch = res_list["questions"]
-                total_questions = res_list["total"]
-                
-                if not questions_batch:
-                    break
+                    if not questions_batch:
+                        break
+                        
+                    for q in questions_batch:
+                        temp_questions[q["questionId"]] = q
+                        temp_slug_to_id[q["titleSlug"]] = q["questionId"]
+                        # Some questions might not have frontend id, safely handle
+                        if q.get("questionFrontendId"):
+                            temp_frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]
                     
-                for q in questions_batch:
-                    temp_questions[q["questionId"]] = q
-                    temp_slug_to_id[q["titleSlug"]] = q["questionId"]
-                    temp_frontend_id_to_slug[q["questionFrontendId"]] = q["titleSlug"]
-                
-                print(f"Fetched questions: {len(temp_questions)} / {total_questions}")
-                
-                skip += limit_per_request
-                
-                # Break loop if all questions are fetched
-                if len(temp_questions) >= total_questions:
-                    break
+                    print(f"Fetched questions: {len(temp_questions)} / {total_questions}")
                     
-                # Small delay to avoid aggressive polling
-                await asyncio.sleep(0.3)
+                    skip += limit_per_request
+                    
+                    # Break loop if all questions are fetched
+                    if len(temp_questions) >= total_questions:
+                        break
+                        
+                    # Small delay to avoid aggressive polling
+                    await asyncio.sleep(0.3)
+                    
+                except httpx.TimeoutException:
+                     print(f"Timeout occurred at skip {skip}. Aborting fetch.")
+                     break
+                except Exception as e:
+                     print(f"Error at skip {skip}: {e}")
+                     break
             
             # Atomic swap - only replace if we got data
             if temp_questions:
                 self.questions = temp_questions
                 self.slug_to_id = temp_slug_to_id
                 self.frontend_id_to_slug = temp_frontend_id_to_slug
-                print(f"Successfully cached {len(self.questions)} questions.")
+                self.last_updated = time.time()
+                print(f"Successfully cached {len(self.questions)} questions from API.")
             else:
                 print("Warning: No questions fetched, keeping existing cache.")
         except Exception as e:
