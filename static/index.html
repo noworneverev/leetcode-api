@@ -206,9 +206,36 @@
             const [columnFilters, setColumnFilters] = useState([]);
             const [sorting, setSorting] = useState([{ id: 'likes', desc: true }]);
             const [columnVisibility, setColumnVisibility] = useState({
-                frontendId: true, title: true, likes: true, dislikes: true, likeRatio: true, topicTags: true, difficulty: true, paidOnly: true,
+                done: true, frontendId: true, title: true, likes: true, dislikes: true, likeRatio: true, topicTags: true, difficulty: true, paidOnly: true,
                 accepted: false, submissions: false, acRate: false, hasSolution: false, hasVideoSolution: false, category: false,
             });
+
+            // Done questions tracking with localStorage
+            const [doneQuestions, setDoneQuestions] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('leetcode-done-questions');
+                    return saved ? new Set(JSON.parse(saved)) : new Set();
+                } catch {
+                    return new Set();
+                }
+            });
+
+            // Persist done questions to localStorage
+            useEffect(() => {
+                localStorage.setItem('leetcode-done-questions', JSON.stringify([...doneQuestions]));
+            }, [doneQuestions]);
+
+            const toggleDone = useCallback((questionId) => {
+                setDoneQuestions(prev => {
+                    const next = new Set(prev);
+                    if (next.has(questionId)) {
+                        next.delete(questionId);
+                    } else {
+                        next.add(questionId);
+                    }
+                    return next;
+                });
+            }, []);
 
             useEffect(() => {
                 document.documentElement.classList.toggle('dark', darkMode);
@@ -288,6 +315,36 @@
             const columnHelper = createColumnHelper();
 
             const columns = useMemo(() => [
+                columnHelper.accessor(row => doneQuestions.has(row.id), {
+                    id: 'done',
+                    header: '✓',
+                    cell: i => {
+                        const questionId = i.row.original.id;
+                        const isDone = doneQuestions.has(questionId);
+                        return (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); toggleDone(questionId); }}
+                                className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all
+                                    ${isDone
+                                        ? 'bg-green-500 border-green-500 text-white shadow-sm'
+                                        : 'border-gray-300 dark:border-dark-600 hover:border-green-400 dark:hover:border-green-500'
+                                    }`}
+                                title={isDone ? 'Mark as not done' : 'Mark as done'}
+                            >
+                                {isDone && <i className="fas fa-check text-xs"></i>}
+                            </button>
+                        );
+                    },
+                    size: 50,
+                    meta: { label: 'Done' },
+                    filterFn: (row, columnId, filterValue) => {
+                        const isDone = doneQuestions.has(row.original.id);
+                        if (filterValue === 'done') return isDone;
+                        if (filterValue === 'notdone') return !isDone;
+                        return true;
+                    },
+                    enableSorting: false,
+                }),
                 columnHelper.accessor('frontendId', {
                     id: 'frontendId',
                     header: 'ID',
@@ -440,7 +497,7 @@
                     meta: { label: 'Category' },
                     enableColumnFilter: false,
                 }),
-            ], []);
+            ], [doneQuestions, toggleDone]);
 
             const table = useReactTable({
                 data,
@@ -472,13 +529,15 @@
                 total: data.length,
                 easy: data.filter(d => d.difficulty === 'Easy').length,
                 medium: data.filter(d => d.difficulty === 'Medium').length,
-                hard: data.filter(d => d.difficulty === 'Hard').length
-            }), [data]);
+                hard: data.filter(d => d.difficulty === 'Hard').length,
+                done: data.filter(d => doneQuestions.has(d.id)).length
+            }), [data, doneQuestions]);
 
             // Get columns for filters - ensure they exist
             const difficultyColumn = table.getColumn('difficulty');
             const paidOnlyColumn = table.getColumn('paidOnly');
             const hasSolutionColumn = table.getColumn('hasSolution');
+            const doneColumn = table.getColumn('done');
 
             if (loading) return (
                 <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-dark-900">
@@ -517,6 +576,7 @@
                                     <div>
                                         <h1 className="text-lg sm:text-xl font-bold dark:text-white">LeetCode Explorer</h1>
                                         <div className="text-xs text-gray-500 flex gap-2 sm:gap-3 flex-wrap items-center">
+                                            <span className="text-green-500 font-semibold">Done: {stats.done}</span>
                                             <span className="text-lc-easy">Easy: {stats.easy}</span>
                                             <span className="text-lc-medium">Medium: {stats.medium}</span>
                                             <span className="text-lc-hard">Hard: {stats.hard}</span>
@@ -578,6 +638,18 @@
                                         options={[
                                             { value: 'free', label: '✓ Free Only' },
                                             { value: 'premium', label: '👑 Premium' }
+                                        ]}
+                                    />
+                                )}
+
+                                {doneColumn && (
+                                    <SelectFilter
+                                        column={doneColumn}
+                                        label="Status"
+                                        icon="fas fa-check-circle"
+                                        options={[
+                                            { value: 'done', label: '✅ Done' },
+                                            { value: 'notdone', label: '⬜ Not Done' }
                                         ]}
                                     />
                                 )}
