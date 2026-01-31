@@ -47,6 +47,10 @@ HOME_PAGE_HTML ="""
                 background-color: #047857 !important;
             }
         </style>
+        <script>
+            window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+        </script>
+        <script defer src="/_vercel/insights/script.js"></script>
     </head>
     <body class="bg-gray-100 min-h-screen flex items-center justify-center">
         <div class="max-w-2xl mx-4 text-center">

@@ -112,6 +112,10 @@
             box-shadow: 0 0 0 2px rgba(255, 161, 22, 0.3);
         }
     </style>
+    <script>
+        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
 </head>
 
 <body class="bg-gray-100 text-gray-900 dark:bg-dark-900 dark:text-gray-100">
@@ -723,11 +727,6 @@
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
-    <!-- Vercel Web Analytics -->
-    <script>
-        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-    </script>
-    <script defer src="/_vercel/insights/script.js"></script>
 </body>
 
 </html>
