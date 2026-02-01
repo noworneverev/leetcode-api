@@ -253,30 +253,24 @@ class TestProblemsEndpoints:
 
     def test_get_all_tags(self):
         """Test getting all topic tags."""
-        with patch("src.api.api.client.post", new_callable=AsyncMock) as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "data": {
-                    "problemsetQuestionList": {
-                        "total": 100,
-                        "questions": [
-                            {"topicTags": [{"name": "Array", "slug": "array"}, {"name": "Hash Table", "slug": "hash-table"}]},
-                            {"topicTags": [{"name": "Array", "slug": "array"}, {"name": "Two Pointers", "slug": "two-pointers"}]}
-                        ]
-                    }
-                }
-            }
-            mock_post.return_value = mock_response
+        # Setup mock tags in cache
+        original_tags = cache.tags_cache
+        try:
+            expected_tags = [
+                 {"name": "Array", "slug": "array", "problem_count": 2},
+                 {"name": "Hash Table", "slug": "hash-table", "problem_count": 1}
+            ]
+            cache.tags_cache = expected_tags
             
             response = client.get("/tags")
             assert response.status_code == 200
             data = response.json()
             assert isinstance(data, list)
-            assert len(data) >= 2  # At least 2 unique tags
-            # Array should appear first (highest count)
+            assert len(data) == 2
             assert data[0]["slug"] == "array"
             assert data[0]["problem_count"] == 2
+        finally:
+            cache.tags_cache = original_tags
 
     def test_get_problems_by_tag(self):
         """Test getting problems by tag."""

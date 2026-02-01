@@ -141,13 +141,42 @@ class QuestionCache:
                         temp_slug_to_id[q_data["titleSlug"]] = q_data["questionId"]
                         if q_data["questionFrontendId"]:
                             temp_frontend_id_to_slug[q_data["questionFrontendId"]] = q_data["titleSlug"]
+                        
+                        # Store topic tags if available (for /tags endpoint)
+                        if "topicTags" in q:
+                            q_data["topicTags"] = q["topicTags"]
+                            
                         count += 1
             
             if count > 0:
                 self.questions = temp_questions
                 self.slug_to_id = temp_slug_to_id
                 self.frontend_id_to_slug = temp_frontend_id_to_slug
+                
+                # Compute tags cache locally
+                tag_counts = {}
+                for q in self.questions.values():
+                    if "topicTags" in q:
+                        for tag in q["topicTags"]:
+                            name = tag.get("name")
+                            slug = tag.get("slug")
+                            
+                            if name and not slug:
+                                # Generate slug from name if missing
+                                slug = name.lower().replace(" ", "-")
+                                # Update question tag data so it has the slug for future use
+                                tag["slug"] = slug
+                                
+                            if slug and name:
+                                if slug not in tag_counts:
+                                    tag_counts[slug] = {"name": name, "slug": slug, "problem_count": 0}
+                                tag_counts[slug]["problem_count"] += 1
+                
+                self.tags_cache = sorted(tag_counts.values(), key=lambda x: x["problem_count"], reverse=True)
+                self.tags_last_updated = time.time()
+                
                 print(f"Loaded {count} questions from {self.data_file_path}")
+                print(f"Computed {len(self.tags_cache)} tags from local data.")
                 return True
                 
         except Exception as e:
@@ -516,88 +545,10 @@ async def get_problem_stats():
 async def get_all_tags():
     """
     Get all available topic tags with problem counts.
-    Results are cached for 1 hour.
+    Served from local cache.
     """
-    try:
-        # Check cache first
-        if cache.tags_cache and (time.time() - cache.tags_last_updated) < cache.tags_cache_duration:
-            return cache.tags_cache
-        
-        # LeetCode's topicTags query returns empty, so we fetch all problems with tags
-        query = """query problemsWithTags($limit: Int, $skip: Int) {
-            problemsetQuestionList: questionList(
-                categorySlug: ""
-                limit: $limit
-                skip: $skip
-                filters: {}
-            ) {
-                total: totalNum
-                questions: data {
-                    topicTags {
-                        name
-                        slug
-                    }
-                }
-            }
-        }"""
-        
-        tag_counts = {}
-        limit = 100
-        skip = 0
-        total = None
-        
-        # Fetch all problems in batches
-        while True:
-            payload = {
-                "query": query,
-                "variables": {"limit": limit, "skip": skip}
-            }
-            
-            response = await client.post(leetcode_url, json=payload)
-            if response.status_code != 200:
-                break
-                
-            data = response.json()
-            result = data.get("data", {}).get("problemsetQuestionList", {})
-            questions = result.get("questions", [])
-            
-            if total is None:
-                total = result.get("total", 0)
-            
-            if not questions:
-                break
-            
-            # Count tag occurrences
-            for q in questions:
-                for tag in q.get("topicTags", []):
-                    name = tag.get("name")
-                    slug = tag.get("slug")
-                    if name and slug:
-                        if slug not in tag_counts:
-                            tag_counts[slug] = {"name": name, "slug": slug, "problem_count": 0}
-                        tag_counts[slug]["problem_count"] += 1
-            
-            skip += limit
-            if skip >= total:
-                break
-            
-            # Small delay to avoid rate limiting
-            await asyncio.sleep(0.1)
-        
-        # Sort by problem count descending
-        result = sorted(tag_counts.values(), key=lambda x: x["problem_count"], reverse=True)
-        
-        # Update cache
-        cache.tags_cache = result
-        cache.tags_last_updated = time.time()
-        
-        return result
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    await cache.initialize()
+    return cache.tags_cache
 
 @app.get("/problems/tag/{tag_slug}", tags=["Problems"])
 async def get_problems_by_tag(
