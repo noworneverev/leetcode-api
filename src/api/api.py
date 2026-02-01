@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from collections import OrderedDict
 import httpx
-from typing import Dict
+from typing import Dict, Optional, List
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse
@@ -60,6 +60,10 @@ class QuestionCache:
         self.update_interval: int = 3600
         self.lock = asyncio.Lock()
         self.data_file_path = os.path.join(data_dir, "leetcode_questions.json")
+        # Tags cache
+        self.tags_cache: List[dict] = []
+        self.tags_last_updated: float = 0
+        self.tags_cache_duration: int = 3600  # Cache tags for 1 hour
 
     async def initialize(self):
         async with self.lock:
@@ -381,20 +385,353 @@ async def search_problems(query: str):
     return results
 
 @app.get("/random", tags=["Problems"])
-async def get_random_problem():
+async def get_random_problem(
+    difficulty: Optional[str] = Query(None, description="Filter by difficulty: Easy, Medium, Hard"),
+    tag: Optional[str] = Query(None, description="Filter by topic tag slug (e.g., 'array', 'dynamic-programming')")
+):
     """
-    Return a random problem from the cached questions.
+    Return a random problem. Optionally filter by difficulty and/or tag.
     """
     await cache.initialize()
     if not cache.questions:
         raise HTTPException(status_code=404, detail="No questions available")
-    q = random.choice(list(cache.questions.values()))
+    
+    # Filter candidates
+    candidates = list(cache.questions.values())
+    
+    if difficulty:
+        difficulty_normalized = difficulty.capitalize()
+        candidates = [q for q in candidates if q.get("difficulty") == difficulty_normalized]
+    
+    if tag:
+        # For tag filtering, we need to check the detailed cache or fetch
+        # This is a simplified version that works with cached details
+        tag_lower = tag.lower().replace("-", " ")
+        filtered = []
+        for q in candidates:
+            details = cache.question_details.get(q["questionId"])
+            if details and details.get("topicTags"):
+                tag_names = [t["name"].lower() for t in details["topicTags"]]
+                if tag_lower in tag_names or tag.lower() in [t["name"].lower().replace(" ", "-") for t in details["topicTags"]]:
+                    filtered.append(q)
+        if filtered:
+            candidates = filtered
+    
+    if not candidates:
+        raise HTTPException(status_code=404, detail="No matching questions found")
+    
+    q = random.choice(candidates)
     return {
         "id": q["questionId"],
         "frontend_id": q["questionFrontendId"],
         "title": q["title"],
         "title_slug": q["titleSlug"],
+        "difficulty": q["difficulty"],
         "url": f"https://leetcode.com/problems/{q['titleSlug']}/"
+    }
+
+@app.get("/problems/filter", tags=["Problems"])
+async def filter_problems(
+    difficulty: Optional[str] = Query(None, description="Filter by difficulty: Easy, Medium, Hard"),
+    paid_only: Optional[bool] = Query(None, description="Filter by paid status"),
+    has_solution: Optional[bool] = Query(None, description="Filter by has official solution"),
+    limit: int = Query(50, ge=1, le=500, description="Number of results to return"),
+    skip: int = Query(0, ge=0, description="Number of results to skip (for pagination)")
+):
+    """
+    Filter problems by various criteria with pagination support.
+    """
+    await cache.initialize()
+    
+    results = list(cache.questions.values())
+    
+    # Apply filters
+    if difficulty:
+        difficulty_normalized = difficulty.capitalize()
+        results = [q for q in results if q.get("difficulty") == difficulty_normalized]
+    
+    if paid_only is not None:
+        results = [q for q in results if q.get("paidOnly") == paid_only]
+    
+    if has_solution is not None:
+        results = [q for q in results if q.get("hasSolution") == has_solution]
+    
+    # Sort by frontend_id for consistent ordering
+    results.sort(key=lambda x: int(x.get("questionFrontendId", 0) or 0))
+    
+    # Pagination
+    total = len(results)
+    results = results[skip:skip + limit]
+    
+    return {
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "problems": [{
+            "id": q["questionId"],
+            "frontend_id": q["questionFrontendId"],
+            "title": q["title"],
+            "title_slug": q["titleSlug"],
+            "url": f"https://leetcode.com/problems/{q['titleSlug']}/",
+            "difficulty": q["difficulty"],
+            "paid_only": q["paidOnly"],
+            "has_solution": q["hasSolution"],
+            "has_video_solution": q["hasVideoSolution"],
+        } for q in results]
+    }
+
+@app.get("/stats", tags=["Problems"])
+async def get_problem_stats():
+    """
+    Get overall statistics about problems.
+    """
+    await cache.initialize()
+    
+    questions = list(cache.questions.values())
+    
+    easy = sum(1 for q in questions if q.get("difficulty") == "Easy")
+    medium = sum(1 for q in questions if q.get("difficulty") == "Medium")
+    hard = sum(1 for q in questions if q.get("difficulty") == "Hard")
+    free = sum(1 for q in questions if not q.get("paidOnly"))
+    paid = sum(1 for q in questions if q.get("paidOnly"))
+    with_solution = sum(1 for q in questions if q.get("hasSolution"))
+    with_video = sum(1 for q in questions if q.get("hasVideoSolution"))
+    
+    return {
+        "total": len(questions),
+        "by_difficulty": {
+            "easy": easy,
+            "medium": medium,
+            "hard": hard
+        },
+        "by_access": {
+            "free": free,
+            "paid": paid
+        },
+        "with_solution": with_solution,
+        "with_video_solution": with_video
+    }
+
+@app.get("/tags", tags=["Problems"])
+async def get_all_tags():
+    """
+    Get all available topic tags with problem counts.
+    Results are cached for 1 hour.
+    """
+    try:
+        # Check cache first
+        if cache.tags_cache and (time.time() - cache.tags_last_updated) < cache.tags_cache_duration:
+            return cache.tags_cache
+        
+        # LeetCode's topicTags query returns empty, so we fetch all problems with tags
+        query = """query problemsWithTags($limit: Int, $skip: Int) {
+            problemsetQuestionList: questionList(
+                categorySlug: ""
+                limit: $limit
+                skip: $skip
+                filters: {}
+            ) {
+                total: totalNum
+                questions: data {
+                    topicTags {
+                        name
+                        slug
+                    }
+                }
+            }
+        }"""
+        
+        tag_counts = {}
+        limit = 100
+        skip = 0
+        total = None
+        
+        # Fetch all problems in batches
+        while True:
+            payload = {
+                "query": query,
+                "variables": {"limit": limit, "skip": skip}
+            }
+            
+            response = await client.post(leetcode_url, json=payload)
+            if response.status_code != 200:
+                break
+                
+            data = response.json()
+            result = data.get("data", {}).get("problemsetQuestionList", {})
+            questions = result.get("questions", [])
+            
+            if total is None:
+                total = result.get("total", 0)
+            
+            if not questions:
+                break
+            
+            # Count tag occurrences
+            for q in questions:
+                for tag in q.get("topicTags", []):
+                    name = tag.get("name")
+                    slug = tag.get("slug")
+                    if name and slug:
+                        if slug not in tag_counts:
+                            tag_counts[slug] = {"name": name, "slug": slug, "problem_count": 0}
+                        tag_counts[slug]["problem_count"] += 1
+            
+            skip += limit
+            if skip >= total:
+                break
+            
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.1)
+        
+        # Sort by problem count descending
+        result = sorted(tag_counts.values(), key=lambda x: x["problem_count"], reverse=True)
+        
+        # Update cache
+        cache.tags_cache = result
+        cache.tags_last_updated = time.time()
+        
+        return result
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/problems/tag/{tag_slug}", tags=["Problems"])
+async def get_problems_by_tag(
+    tag_slug: str,
+    difficulty: Optional[str] = Query(None, description="Filter by difficulty: Easy, Medium, Hard"),
+    limit: int = Query(50, ge=1, le=500, description="Number of results to return"),
+    skip: int = Query(0, ge=0, description="Number of results to skip")
+):
+    """
+    Get problems filtered by a specific topic tag.
+    """
+    try:
+        query = """query problemsByTag($limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+            problemsetQuestionList: questionList(
+                categorySlug: ""
+                limit: $limit
+                skip: $skip
+                filters: $filters
+            ) {
+                total: totalNum
+                questions: data {
+                    questionId
+                    questionFrontendId
+                    title
+                    titleSlug
+                    difficulty
+                    paidOnly: isPaidOnly
+                    hasSolution
+                    hasVideoSolution
+                }
+            }
+        }"""
+        
+        filters = {"tags": [tag_slug]}
+        if difficulty:
+            filters["difficulty"] = difficulty.upper()
+        
+        payload = {
+            "query": query,
+            "variables": {
+                "limit": limit,
+                "skip": skip,
+                "filters": filters
+            }
+        }
+        
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            result = data.get("data", {}).get("problemsetQuestionList", {})
+            questions = result.get("questions", [])
+            
+            return {
+                "tag": tag_slug,
+                "total": result.get("total", 0),
+                "limit": limit,
+                "skip": skip,
+                "problems": [{
+                    "id": q["questionId"],
+                    "frontend_id": q["questionFrontendId"],
+                    "title": q["title"],
+                    "title_slug": q["titleSlug"],
+                    "url": f"https://leetcode.com/problems/{q['titleSlug']}/",
+                    "difficulty": q["difficulty"],
+                    "paid_only": q["paidOnly"],
+                    "has_solution": q["hasSolution"],
+                } for q in questions]
+            }
+        raise HTTPException(status_code=response.status_code, detail="Error fetching problems by tag")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/problem/{id_or_slug}/similar", tags=["Problems"])
+async def get_similar_problems(id_or_slug: str):
+    """
+    Get similar problems for a given problem.
+    """
+    await cache.initialize()
+    
+    # First get the problem details
+    if id_or_slug in cache.frontend_id_to_slug:
+        slug = cache.frontend_id_to_slug[id_or_slug]
+    elif id_or_slug in cache.slug_to_id:
+        slug = id_or_slug
+    else:
+        raise HTTPException(status_code=404, detail="Question not found")
+    
+    question_id = cache.slug_to_id[slug]
+    
+    # Check if we have cached details
+    cached = cache.question_details.get(question_id)
+    if not cached:
+        # Fetch the problem to get similar questions
+        try:
+            query = """query questionData($titleSlug: String!) {
+                question(titleSlug: $titleSlug) {
+                    similarQuestions
+                }
+            }"""
+            
+            payload = {
+                "query": query,
+                "variables": {"titleSlug": slug}
+            }
+            
+            response = await client.post(leetcode_url, json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                cached = data.get("data", {}).get("question", {})
+        except:
+            raise HTTPException(status_code=500, detail="Error fetching problem details")
+    
+    similar_raw = cached.get("similarQuestions", "[]")
+    if isinstance(similar_raw, str):
+        import json
+        try:
+            similar = json.loads(similar_raw)
+        except:
+            similar = []
+    else:
+        similar = similar_raw or []
+    
+    return {
+        "problem": slug,
+        "similar": [{
+            "title": s.get("title"),
+            "title_slug": s.get("titleSlug"),
+            "difficulty": s.get("difficulty"),
+            "url": f"https://leetcode.com/problems/{s.get('titleSlug')}/"
+        } for s in similar]
     }
 
 @app.get("/user/{username}", tags=["Users"])
@@ -463,6 +800,8 @@ async def get_user_profile(username: str):
         raise HTTPException(status_code=response.status_code, detail="Error fetching user profile")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -510,6 +849,8 @@ async def get_user_contest_history(username: str):
         raise HTTPException(status_code=response.status_code, detail="Error fetching contest history")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -554,6 +895,8 @@ async def get_recent_submissions(username: str, limit: int = Query(default=20, g
         raise HTTPException(status_code=response.status_code, detail="Error fetching submissions")
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -605,6 +948,172 @@ async def health_check():
         "cache_age_seconds": int(time.time() - cache.last_updated) if cache.last_updated else None
     }
 
+
+@app.get("/user/{username}/calendar", tags=["Users"])
+async def get_user_calendar(username: str, year: int = None):
+    try:
+        query = """query userCalendar($username: String!, $year: Int) {
+            matchedUser(username: $username) {
+                userCalendar(year: $year) {
+                    activeYears
+                    streak
+                    totalActiveDays
+                    dccBadges {
+                        timestamp
+                        badge {
+                            name
+                            icon
+                        }
+                    }
+                    submissionCalendar
+                }
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": {"username": username, "year": year}
+        }
+        
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("data", {}).get("matchedUser"):
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            # submissionCalendar is a JSON string, parse it for convenience
+            calendar_data = data["data"]["matchedUser"]["userCalendar"]
+            import json
+            if calendar_data.get("submissionCalendar"):
+                calendar_data["submissionCalendar"] = json.loads(calendar_data["submissionCalendar"])
+                
+            return calendar_data
+        raise HTTPException(status_code=response.status_code, detail="Error fetching calendar")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/user/{username}/badges", tags=["Users"])
+async def get_user_badges(username: str):
+    try:
+        query = """query userBadges($username: String!) {
+            matchedUser(username: $username) {
+                badges {
+                    id
+                    name
+                    shortName
+                    displayName
+                    icon
+                    hoverText
+                    medal {
+                        slug
+                        config {
+                            iconGif
+                            iconGifBackground
+                        }
+                    }
+                    creationDate
+                    category
+                }
+                upcomingBadges {
+                    name
+                    icon
+                    progress
+                }
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": {"username": username}
+        }
+        
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("data", {}).get("matchedUser"):
+                raise HTTPException(status_code=404, detail="User not found")
+            return data["data"]["matchedUser"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching badges")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/user/{username}/skills", tags=["Users"])
+async def get_user_skills(username: str):
+    try:
+        query = """query skillStats($username: String!) {
+            matchedUser(username: $username) {
+                tagProblemCounts {
+                    advanced {
+                        tagName
+                        tagSlug
+                        problemsSolved
+                    }
+                    intermediate {
+                        tagName
+                        tagSlug
+                        problemsSolved
+                    }
+                    fundamental {
+                        tagName
+                        tagSlug
+                        problemsSolved
+                    }
+                }
+            }
+        }"""
+         
+        payload = {
+            "query": query,
+            "variables": {"username": username}
+        }
+        
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("data", {}).get("matchedUser"):
+                raise HTTPException(status_code=404, detail="User not found")
+            return data["data"]["matchedUser"]["tagProblemCounts"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching skills")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/contests", tags=["Contests"])
+async def get_contests():
+    try:
+        query = """query upcomingContests {
+            topTwoContests {
+                title
+                titleSlug
+                startTime
+                duration
+                originStartTime
+                isVirtual
+            }
+        }"""
+        
+        payload = {"query": query}
+        
+        response = await client.post(leetcode_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            return data["data"]
+        raise HTTPException(status_code=response.status_code, detail="Error fetching contests")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home():
