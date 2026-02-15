@@ -157,6 +157,109 @@
             );
         }
 
+        function MultiSelectFilter({ column, options, label, icon }) {
+            if (!column) return null;
+            const filterValue = column.getFilterValue() || [];
+            const toggle = (val) => {
+                const current = filterValue;
+                const next = current.includes(val) ? current.filter(v => v !== val) : [...current, val];
+                column.setFilterValue(next.length ? next : undefined);
+            };
+            const hasValue = filterValue.length > 0;
+            return (
+                <div className="flex items-center gap-1">
+                    <i className={`${icon} text-xs mr-0.5 ${hasValue ? 'text-brand-500' : 'text-gray-400'}`}></i>
+                    {options.map(o => {
+                        const active = filterValue.includes(o.value);
+                        return (
+                            <button key={o.value} onClick={() => toggle(o.value)}
+                                className={`px-2.5 py-1 text-xs rounded-lg border transition-all font-medium
+                                    ${active
+                                        ? (o.activeClass || 'border-brand-500 bg-brand-50 dark:bg-brand-500/20 text-brand-600 dark:text-brand-300')
+                                        : 'border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-dark-500'
+                                    }`}
+                            >{o.label}</button>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        function CheckboxFilterDropdown({ column, allOptions }) {
+            if (!column) return null;
+            const [open, setOpen] = useState(false);
+            const [search, setSearch] = useState('');
+            const [pos, setPos] = useState({ top: 0, left: 0 });
+            const btnRef = useRef(null);
+            const filterValue = column.getFilterValue() || [];
+            const hasValue = filterValue.length > 0;
+
+            const filtered = search
+                ? allOptions.filter(o => o.value.toLowerCase().includes(search.toLowerCase()))
+                : allOptions;
+
+            const toggle = (val) => {
+                const next = filterValue.includes(val) ? filterValue.filter(v => v !== val) : [...filterValue, val];
+                column.setFilterValue(next.length ? next : undefined);
+            };
+
+            const selectAll = () => column.setFilterValue(filtered.map(o => o.value));
+            const clearAll = () => column.setFilterValue(undefined);
+
+            const handleOpen = () => {
+                if (!open && btnRef.current) {
+                    const rect = btnRef.current.getBoundingClientRect();
+                    setPos({ top: rect.bottom + 4, left: rect.left });
+                }
+                setOpen(!open);
+                setSearch('');
+            };
+
+            return (
+                <div className="relative" onClick={e => e.stopPropagation()}>
+                    <button ref={btnRef} onClick={handleOpen}
+                        className={`ml-1 w-5 h-5 rounded flex items-center justify-center text-[10px] transition-colors
+                            ${hasValue ? 'text-brand-500 bg-brand-500/10' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                        title="Filter topics">
+                        <i className="fas fa-filter"></i>
+                        {hasValue && <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-brand-500 text-white text-[8px] rounded-full flex items-center justify-center font-bold">{filterValue.length}</span>}
+                    </button>
+                    {open && ReactDOM.createPortal(<>
+                        <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)}></div>
+                        <div className="fixed w-64 bg-white dark:bg-dark-800 rounded-xl shadow-2xl border border-gray-200 dark:border-dark-600 z-[9999] overflow-hidden"
+                            style={{ top: pos.top, left: pos.left, maxHeight: 360 }}>
+                            <div className="p-2 border-b border-gray-100 dark:border-dark-700">
+                                <div className="relative">
+                                    <i className="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                                    <input type="text" placeholder="Search topics..." value={search} onChange={e => setSearch(e.target.value)}
+                                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-dark-600 bg-gray-50 dark:bg-dark-700 outline-none focus:ring-1 focus:ring-brand-500" />
+                                </div>
+                                <div className="flex gap-2 mt-2">
+                                    <button onClick={selectAll} className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium">Select All</button>
+                                    <button onClick={clearAll} className="text-[11px] text-red-500 hover:underline font-medium">Clear All</button>
+                                    {hasValue && <span className="text-[11px] text-gray-400 ml-auto">{filterValue.length} selected</span>}
+                                </div>
+                            </div>
+                            <div className="overflow-y-auto" style={{ maxHeight: 280 }}>
+                                {filtered.map(o => {
+                                    const checked = filterValue.includes(o.value);
+                                    return (
+                                        <label key={o.value} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-700 cursor-pointer">
+                                            <input type="checkbox" checked={checked} onChange={() => toggle(o.value)}
+                                                className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" style={{ width: 14, height: 14 }} />
+                                            <span className="text-xs flex-1 truncate">{o.value}</span>
+                                            <span className="text-[10px] text-gray-400 tabular-nums">{o.count}</span>
+                                        </label>
+                                    );
+                                })}
+                                {filtered.length === 0 && <div className="p-3 text-xs text-gray-400 text-center">No topics found</div>}
+                            </div>
+                        </div>
+                    </>, document.body)}
+                </div>
+            );
+        }
+
         function ColumnDropdown({ table }) {
             const [open, setOpen] = useState(false);
             const allColumns = table.getAllLeafColumns();
@@ -202,8 +305,6 @@
         function App() {
             const [data, setData] = useState([]);
             const [loading, setLoading] = useState(true);
-            const [loadingProgress, setLoadingProgress] = useState(0);
-            const [loadingStatus, setLoadingStatus] = useState('Connecting...');
             const [error, setError] = useState(null);
             const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches));
             const [globalFilter, setGlobalFilter] = useState('');
@@ -249,43 +350,9 @@
             useEffect(() => {
                 (async () => {
                     try {
-                        setLoadingStatus('Downloading data...');
-                        // Fetch from local data path (faster - uses same-origin, Vercel CDN when deployed)
                         const res = await fetch('/data/leetcode_questions.json');
                         if (!res.ok) throw new Error('Failed to fetch');
-
-                        // Get content length for progress
-                        const contentLength = res.headers.get('content-length');
-                        const total = contentLength ? parseInt(contentLength, 10) : 0;
-
-                        let loaded = 0;
-                        const reader = res.body.getReader();
-                        const chunks = [];
-
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            chunks.push(value);
-                            loaded += value.length;
-                            // Note: content-length may be compressed size, so cap at 100%
-                            if (total > 0) {
-                                const percent = Math.min(100, Math.round((loaded / total) * 100));
-                                setLoadingProgress(percent);
-                                setLoadingStatus(`Downloading... ${(loaded / 1024 / 1024).toFixed(1)} MB`);
-                            }
-                        }
-
-                        // Combine chunks and decode
-                        setLoadingStatus('Processing data...');
-                        setLoadingProgress(100);
-                        const allChunks = new Uint8Array(loaded);
-                        let position = 0;
-                        for (const chunk of chunks) {
-                            allChunks.set(chunk, position);
-                            position += chunk.length;
-                        }
-                        const jsonText = new TextDecoder().decode(allChunks);
-                        const json = JSON.parse(jsonText);
+                        const json = await res.json();
 
                         const arr = Array.isArray(json) ? json : Object.values(json);
                         setData(arr.map(item => {
@@ -414,8 +481,12 @@
                         );
                     },
                     size: 220,
-                    meta: { label: 'Topics' },
-                    enableColumnFilter: false,
+                    meta: { label: 'Topics', hasDropdownFilter: true },
+                    filterFn: (row, columnId, filterValue) => {
+                        if (!filterValue || !filterValue.length) return true;
+                        const tags = row.getValue(columnId) || [];
+                        return filterValue.some(f => tags.includes(f));
+                    },
                 }),
                 columnHelper.accessor('difficulty', {
                     id: 'difficulty',
@@ -426,7 +497,10 @@
                         return <span className={`px-2 py-0.5 rounded text-xs font-bold ${colors[d] || ''}`}>{d}</span>;
                     },
                     size: 105,
-                    filterFn: 'equals',
+                    filterFn: (row, columnId, filterValue) => {
+                        if (!filterValue || !filterValue.length) return true;
+                        return filterValue.includes(row.getValue(columnId));
+                    },
                     meta: { label: 'Difficulty' },
                 }),
                 columnHelper.accessor('accepted', {
@@ -521,6 +595,13 @@
             const visibleCols = table.getVisibleLeafColumns();
             const gridCols = visibleCols.map(c => `${c.getSize()}px`).join(' ');
 
+            // Compute unique topics with counts for the filter dropdown
+            const allTopics = useMemo(() => {
+                const counts = {};
+                data.forEach(d => (d.topicTags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+                return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0])).map(([value, count]) => ({ value, count }));
+            }, [data]);
+
             const containerRef = useRef(null);
             const rowVirtualizer = useVirtualizer({
                 count: rows.length,
@@ -546,18 +627,12 @@
             if (loading) return (
                 <div className="flex h-screen items-center justify-center bg-gray-100 dark:bg-dark-900">
                     <div className="text-center">
-                        <div className="w-16 h-16 bg-gradient-to-br from-brand-500 to-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-brand-500/30">
-                            <i className="fas fa-code text-white text-2xl"></i>
-                        </div>
-                        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">LeetCode Explorer</h2>
-                        <p className="text-gray-500 dark:text-gray-400 mb-6">{loadingStatus}</p>
-                        <div className="w-64 h-2 bg-gray-200 dark:bg-dark-700 rounded-full overflow-hidden mx-auto">
-                            <div
-                                className="h-full bg-gradient-to-r from-brand-500 to-orange-500 transition-all duration-300 ease-out rounded-full"
-                                style={{ width: `${loadingProgress}%` }}
-                            ></div>
-                        </div>
-                        <p className="text-sm text-gray-400 mt-3">{loadingProgress > 0 ? `${loadingProgress}%` : 'Starting...'}</p>
+                        <div style={{
+                            width: 40, height: 40, border: '4px solid #e5e7eb', borderTopColor: '#ffa116',
+                            borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px'
+                        }}></div>
+                        <p className="text-gray-500 dark:text-gray-400 text-sm">Loading...</p>
+                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                     </div>
                 </div>
             );
@@ -622,14 +697,14 @@
                                 </div>
 
                                 {difficultyColumn && (
-                                    <SelectFilter
+                                    <MultiSelectFilter
                                         column={difficultyColumn}
                                         label="Difficulty"
                                         icon="fas fa-signal"
                                         options={[
-                                            { value: 'Easy', label: '🟢 Easy' },
-                                            { value: 'Medium', label: '🟡 Medium' },
-                                            { value: 'Hard', label: '🔴 Hard' }
+                                            { value: 'Easy', label: '🟢 Easy', activeClass: 'border-lc-easy bg-lc-easy/15 text-lc-easy' },
+                                            { value: 'Medium', label: '🟡 Medium', activeClass: 'border-lc-medium bg-lc-medium/15 text-lc-medium' },
+                                            { value: 'Hard', label: '🔴 Hard', activeClass: 'border-lc-hard bg-lc-hard/15 text-lc-hard' }
                                         ]}
                                     />
                                 )}
@@ -675,21 +750,23 @@
                     {/* Table */}
                     <main className="flex-1 overflow-hidden p-2 sm:p-4">
                         <div className="h-full max-w-[1800px] mx-auto bg-white dark:bg-dark-850 rounded-xl border border-gray-200 dark:border-dark-700 shadow-sm flex flex-col overflow-hidden">
-                            {/* Fixed Header */}
-                            <div className="bg-gray-50 dark:bg-dark-800 border-b-2 border-gray-200 dark:border-dark-600 flex-shrink-0 overflow-x-auto"
-                                style={{ display: 'grid', gridTemplateColumns: gridCols, minWidth: 'max-content' }}>
-                                {table.getHeaderGroups()[0].headers.filter(h => h.column.getIsVisible()).map(h => (
-                                    <div key={h.id} onClick={h.column.getToggleSortingHandler()}
-                                        className="cell text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors">
-                                        <span>{h.column.columnDef.header}</span>
-                                        {h.column.getIsSorted() === 'asc' && <i className="fas fa-caret-up ml-1 text-brand-500"></i>}
-                                        {h.column.getIsSorted() === 'desc' && <i className="fas fa-caret-down ml-1 text-brand-500"></i>}
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Scrollable Body */}
+                            {/* Scrollable Body (header inside for synced horizontal scroll) */}
                             <div ref={containerRef} className="flex-1 overflow-auto">
+                                {/* Sticky Header */}
+                                <div className="bg-gray-50 dark:bg-dark-800 border-b-2 border-gray-200 dark:border-dark-600 sticky top-0 z-10"
+                                    style={{ display: 'grid', gridTemplateColumns: gridCols, minWidth: 'max-content' }}>
+                                    {table.getHeaderGroups()[0].headers.filter(h => h.column.getIsVisible()).map(h => (
+                                        <div key={h.id} onClick={h.column.getToggleSortingHandler()}
+                                            className="cell text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors">
+                                            <span>{h.column.columnDef.header}</span>
+                                            {h.column.getIsSorted() === 'asc' && <i className="fas fa-caret-up ml-1 text-brand-500"></i>}
+                                            {h.column.getIsSorted() === 'desc' && <i className="fas fa-caret-down ml-1 text-brand-500"></i>}
+                                            {h.column.columnDef.meta?.hasDropdownFilter && (
+                                                <CheckboxFilterDropdown column={h.column} allOptions={allTopics} />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                                 <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', minWidth: 'max-content' }}>
                                     {rowVirtualizer.getVirtualItems().map(vRow => {
                                         const row = rows[vRow.index];
