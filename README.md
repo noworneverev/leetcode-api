@@ -56,6 +56,7 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 | Endpoint | Method | Description | Example |
 |----------|--------|-------------|---------|
 | `/user/{username}` | GET | User profile & stats | [/user/lee215](https://leetcode-api-pied.vercel.app/user/lee215) |
+| `/user/{username}/solved` | GET | User's solved problems | [/user/lee215/solved](https://leetcode-api-pied.vercel.app/user/lee215/solved) |
 | `/user/{username}/contests` | GET | User's recent contests | [/user/lee215/contests](https://leetcode-api-pied.vercel.app/user/lee215/contests) |
 | `/user/{username}/submissions` | GET | User's recent submissions | [/user/lee215/submissions](https://leetcode-api-pied.vercel.app/user/lee215/submissions) |
 | `/user/{username}/calendar` | GET | User's heatmap | [/user/lee215/calendar](https://leetcode-api-pied.vercel.app/user/lee215/calendar) |

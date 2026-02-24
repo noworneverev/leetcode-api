@@ -6,7 +6,7 @@ from collections import OrderedDict
 import httpx
 from typing import Dict, Optional, List
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -850,6 +850,172 @@ async def get_recent_submissions(username: str, limit: int = Query(default=20, g
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/user/{username}/solved", tags=["Users"])
+async def get_user_solved(
+    username: str,
+    x_leetcode_session: Optional[str] = Query(None, alias="x_leetcode_session", description="Your LEETCODE_SESSION cookie value. Get it from: DevTools → Application → Cookies → LEETCODE_SESSION. Without it, only ~20 recent solved problems are returned."),
+):
+    """
+    Get all problems solved (Accepted) by a user.
+    
+    Pass your LEETCODE_SESSION cookie value in the 'x_leetcode_session' query parameter
+    to fetch the complete solved list. Without it, only the 20 most recent
+    accepted submissions are returned (LeetCode's public API limit).
+    """
+    leetcode_session = (x_leetcode_session or "").strip()
+    
+    try:
+        if leetcode_session:
+            # Authenticated path: use problemsetQuestionList with status=AC filter
+            return await _get_solved_authenticated(username, leetcode_session)
+        else:
+            # Public path: limited to 20 most recent AC submissions
+            return await _get_solved_public(username)
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Request to LeetCode timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _get_solved_authenticated(username: str, leetcode_session: str):
+    """Fetch ALL solved problems using authenticated LeetCode session."""
+    query = """query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
+        problemsetQuestionList: questionList(
+            categorySlug: $categorySlug
+            limit: $limit
+            skip: $skip
+            filters: $filters
+        ) {
+            total: totalNum
+            questions: data {
+                questionFrontendId
+                titleSlug
+                title
+                difficulty
+                status
+            }
+        }
+    }"""
+
+    headers = {
+        "Cookie": f"LEETCODE_SESSION={leetcode_session}",
+        "Referer": "https://leetcode.com",
+    }
+
+    seen_slugs = {}  # slug -> solved entry (dedup)
+    skip = 0
+    batch_size = 100
+    total = None
+
+    async with httpx.AsyncClient(timeout=30.0) as auth_client:
+        while True:
+            payload = {
+                "query": query,
+                "variables": {
+                    "categorySlug": "",
+                    "limit": batch_size,
+                    "skip": skip,
+                    "filters": {"status": "AC"},
+                },
+            }
+
+            response = await auth_client.post(leetcode_url, json=payload, headers=headers)
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="Error fetching from LeetCode (check your session cookie)",
+                )
+
+            data = response.json()
+            if "errors" in data:
+                raise HTTPException(status_code=401, detail="Invalid or expired session cookie")
+
+            result = data.get("data", {}).get("problemsetQuestionList", {})
+            if total is None:
+                total = result.get("total", 0)
+
+            questions = result.get("questions") or []
+            if not questions:
+                break
+
+            for q in questions:
+                slug = q.get("titleSlug", "")
+                if slug and slug not in seen_slugs:
+                    seen_slugs[slug] = {
+                        "title_slug": slug,
+                        "title": q.get("title", ""),
+                        "difficulty": q.get("difficulty", ""),
+                        "frontend_id": q.get("questionFrontendId", ""),
+                    }
+
+            skip += batch_size
+            if skip >= total:
+                break
+
+            # Small delay to avoid rate limiting
+            await asyncio.sleep(0.2)
+
+    all_solved = list(seen_slugs.values())
+    solved_slugs = list(seen_slugs.keys())
+
+    return {
+        "username": username,
+        "total_solved": len(all_solved),
+        "solved_slugs": solved_slugs,
+        "solved": all_solved,
+    }
+
+
+async def _get_solved_public(username: str):
+    """Fetch recent AC submissions (public, limited to ~20 by LeetCode)."""
+    query = """query recentAcSubmissions($username: String!, $limit: Int!) {
+        recentAcSubmissionList(username: $username, limit: $limit) {
+            id
+            title
+            titleSlug
+            timestamp
+        }
+    }"""
+
+    payload = {
+        "query": query,
+        "variables": {"username": username, "limit": 20},
+    }
+
+    response = await client.post(leetcode_url, json=payload)
+    if response.status_code == 200:
+        data = response.json()
+        if "errors" in data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        submissions = data.get("data", {}).get("recentAcSubmissionList") or []
+
+        # Deduplicate by titleSlug
+        seen = {}
+        for sub in submissions:
+            slug = sub.get("titleSlug")
+            if slug and slug not in seen:
+                seen[slug] = {
+                    "title_slug": slug,
+                    "title": sub.get("title", ""),
+                    "timestamp": sub.get("timestamp", ""),
+                }
+
+        solved_list = list(seen.values())
+        solved_slugs = list(seen.keys())
+
+        return {
+            "username": username,
+            "total_solved": len(solved_list),
+            "solved_slugs": solved_slugs,
+            "solved": solved_list,
+        }
+    raise HTTPException(status_code=response.status_code, detail="Error fetching solved problems")
 
 
 @app.get("/daily", tags=["Daily Challenge"])
