@@ -496,6 +496,96 @@ class TestUserEndpoints:
             assert "intermediate" in data
             assert "fundamental" in data
 
+    def test_get_user_solved(self):
+        """Test fetching solved problems (public path, limited to 20)."""
+        with patch("src.api.api.client.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": {
+                    "recentAcSubmissionList": [
+                        {"id": "1", "title": "Two Sum", "titleSlug": "two-sum", "timestamp": "1706000000"},
+                        {"id": "2", "title": "Add Two Numbers", "titleSlug": "add-two-numbers", "timestamp": "1705900000"},
+                        {"id": "3", "title": "Two Sum", "titleSlug": "two-sum", "timestamp": "1705800000"},
+                    ]
+                }
+            }
+            mock_post.return_value = mock_response
+
+            response = client.get("/user/testuser/solved")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["username"] == "testuser"
+            assert data["total_solved"] == 2  # deduplicated
+            assert "two-sum" in data["solved_slugs"]
+            assert "add-two-numbers" in data["solved_slugs"]
+            assert isinstance(data["solved"], list)
+            assert len(data["solved"]) == 2
+
+    def test_get_user_solved_not_found(self):
+        """Test 404 when user doesn't exist for solved endpoint."""
+        with patch("src.api.api.client.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "errors": [{"message": "That user does not exist."}]
+            }
+            mock_post.return_value = mock_response
+
+            response = client.get("/user/nonexistentuser123/solved")
+            assert response.status_code == 404
+
+    def test_get_user_solved_empty(self):
+        """Test solved endpoint with no submissions."""
+        with patch("src.api.api.client.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": {
+                    "recentAcSubmissionList": []
+                }
+            }
+            mock_post.return_value = mock_response
+
+            response = client.get("/user/testuser/solved")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["total_solved"] == 0
+            assert data["solved_slugs"] == []
+            assert data["solved"] == []
+
+    def test_get_user_solved_authenticated(self):
+        """Test fetching all solved problems with session cookie."""
+        with patch("httpx.AsyncClient") as MockAsyncClient:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": {
+                    "problemsetQuestionList": {
+                        "total": 2,
+                        "questions": [
+                            {"questionFrontendId": "1", "titleSlug": "two-sum", "title": "Two Sum", "difficulty": "Easy", "status": "ac"},
+                            {"questionFrontendId": "2", "titleSlug": "add-two-numbers", "title": "Add Two Numbers", "difficulty": "Medium", "status": "ac"},
+                        ]
+                    }
+                }
+            }
+
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            MockAsyncClient.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            MockAsyncClient.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            response = client.get(
+                "/user/testuser/solved?x_leetcode_session=fake_session_cookie"
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["username"] == "testuser"
+            assert data["total_solved"] == 2
+            assert "two-sum" in data["solved_slugs"]
+            assert "add-two-numbers" in data["solved_slugs"]
+
 
 # ============================================================================
 # Test: Daily Challenge

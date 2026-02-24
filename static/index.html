@@ -159,28 +159,51 @@
 
         function MultiSelectFilter({ column, options, label, icon }) {
             if (!column) return null;
+            const [open, setOpen] = useState(false);
+            const btnRef = useRef(null);
             const filterValue = column.getFilterValue() || [];
+            const hasValue = filterValue.length > 0;
             const toggle = (val) => {
-                const current = filterValue;
-                const next = current.includes(val) ? current.filter(v => v !== val) : [...current, val];
+                const next = filterValue.includes(val) ? filterValue.filter(v => v !== val) : [...filterValue, val];
                 column.setFilterValue(next.length ? next : undefined);
             };
-            const hasValue = filterValue.length > 0;
+            useEffect(() => {
+                if (!open) return;
+                const handler = (e) => { if (btnRef.current && !btnRef.current.closest('.msfwrap')?.contains(e.target)) setOpen(false); };
+                document.addEventListener('click', handler);
+                return () => document.removeEventListener('click', handler);
+            }, [open]);
             return (
-                <div className="flex items-center gap-1">
-                    <i className={`${icon} text-xs mr-0.5 ${hasValue ? 'text-brand-500' : 'text-gray-400'}`}></i>
-                    {options.map(o => {
-                        const active = filterValue.includes(o.value);
-                        return (
-                            <button key={o.value} onClick={() => toggle(o.value)}
-                                className={`px-2.5 py-1 text-xs rounded-lg border transition-all font-medium
-                                    ${active
-                                        ? (o.activeClass || 'border-brand-500 bg-brand-50 dark:bg-brand-500/20 text-brand-600 dark:text-brand-300')
-                                        : 'border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-dark-500'
-                                    }`}
-                            >{o.label}</button>
-                        );
-                    })}
+                <div className="relative msfwrap" ref={btnRef}>
+                    <button onClick={() => setOpen(!open)}
+                        className={`appearance-none pl-8 pr-8 py-2 text-sm rounded-lg border transition-all cursor-pointer flex items-center gap-1
+                            ${hasValue
+                                ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/20 text-brand-700 dark:text-brand-300 font-medium'
+                                : 'border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-200 hover:border-gray-400 dark:hover:border-dark-500'
+                            }`}>
+                        {hasValue ? `${label} (${filterValue.length})` : `All ${label}`}
+                    </button>
+                    <i className={`${icon} absolute left-2.5 top-1/2 -translate-y-1/2 text-xs ${hasValue ? 'text-brand-500' : 'text-gray-400'} pointer-events-none`}></i>
+                    <i className={`fas fa-chevron-down absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none`}></i>
+                    {open && (
+                        <div className="absolute top-full mt-1 left-0 z-50 bg-white dark:bg-dark-800 rounded-lg shadow-xl border border-gray-200 dark:border-dark-600 py-1 min-w-[160px]">
+                            {options.map(o => {
+                                const checked = filterValue.includes(o.value);
+                                return (
+                                    <label key={o.value} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-700 cursor-pointer">
+                                        <input type="checkbox" checked={checked} onChange={() => toggle(o.value)}
+                                            className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" style={{ width: 14, height: 14 }} />
+                                        <span className="text-xs font-medium">{o.label}</span>
+                                    </label>
+                                );
+                            })}
+                            {hasValue && (
+                                <div className="border-t border-gray-100 dark:border-dark-700 mt-1 pt-1 px-3 pb-1">
+                                    <button onClick={() => column.setFilterValue(undefined)} className="text-[11px] text-red-500 hover:underline font-medium">Clear</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             );
         }
@@ -342,6 +365,71 @@
                 });
             }, []);
 
+            // LeetCode username sync
+            const [syncUsername, setSyncUsername] = useState(() => localStorage.getItem('leetcode-sync-username') || '');
+            const [syncSession, setSyncSession] = useState(() => localStorage.getItem('leetcode-sync-session') || '');
+            const [syncStatus, setSyncStatus] = useState(null); // null | 'loading' | {ok, count, newCount, msg}
+            const [showSession, setShowSession] = useState(false);
+            const [syncMode, setSyncMode] = useState(() => localStorage.getItem('leetcode-sync-mode') || 'merge'); // 'merge' | 'replace'
+
+            const handleSync = useCallback(async () => {
+                const username = syncUsername.trim();
+                if (!username) return;
+                localStorage.setItem('leetcode-sync-username', username);
+                if (syncSession) localStorage.setItem('leetcode-sync-session', syncSession);
+                localStorage.setItem('leetcode-sync-mode', syncMode);
+                setSyncStatus('loading');
+                try {
+                    let url = `/user/${encodeURIComponent(username)}/solved`;
+                    if (syncSession.trim()) {
+                        url += `?x_leetcode_session=${encodeURIComponent(syncSession.trim())}`;
+                    }
+                    const res = await fetch(url);
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        setSyncStatus({ ok: false, msg: err.detail || 'Failed to fetch' });
+                        return;
+                    }
+                    const json = await res.json();
+                    const slugSet = new Set(json.solved_slugs || []);
+                    const syncedIds = new Set();
+                    data.forEach(d => { if (slugSet.has(d.slug)) syncedIds.add(d.id); });
+
+                    setDoneQuestions(prev => {
+                        if (syncMode === 'replace') {
+                            return syncedIds;
+                        }
+                        // merge mode: union existing + synced
+                        const next = new Set(prev);
+                        syncedIds.forEach(id => next.add(id));
+                        return next;
+                    });
+
+                    const prevCount = doneQuestions.size;
+                    localStorage.setItem('leetcode-last-sync', new Date().toISOString());
+                    setSyncStatus({
+                        ok: true,
+                        count: json.total_solved,
+                        matched: syncedIds.size,
+                        mode: syncMode,
+                    });
+                } catch (e) {
+                    setSyncStatus({ ok: false, msg: e.message });
+                }
+            }, [syncUsername, syncSession, syncMode, data, doneQuestions]);
+
+            const clearAllDone = useCallback(() => {
+                if (window.confirm(`Clear all ${doneQuestions.size} marked problems? This cannot be undone.`)) {
+                    setDoneQuestions(new Set());
+                    setSyncStatus(null);
+                }
+            }, [doneQuestions]);
+
+            const clearSession = useCallback(() => {
+                setSyncSession('');
+                localStorage.removeItem('leetcode-sync-session');
+            }, []);
+
             useEffect(() => {
                 document.documentElement.classList.toggle('dark', darkMode);
                 localStorage.setItem('theme', darkMode ? 'dark' : 'light');
@@ -364,7 +452,7 @@
                                 id: q.questionId,
                                 frontendId: q.questionFrontendId,
                                 title: q.title,
-                                slug: q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') : ''),
+                                slug: q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '') : ''),
                                 difficulty: q.difficulty,
                                 paidOnly: q.paidOnly || q.isPaidOnly || false,
                                 hasSolution: q.hasSolution || false,
@@ -668,6 +756,52 @@
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                    {/* Done count badge */}
+                                    {doneQuestions.size > 0 && (
+                                        <span className="px-2 py-1 text-xs font-bold rounded-lg bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 whitespace-nowrap" title="Problems marked as done">
+                                            <i className="fas fa-check-circle mr-1"></i>{doneQuestions.size} done
+                                        </span>
+                                    )}
+
+                                    {/* LeetCode Sync */}
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="relative">
+                                            <i className="fas fa-user absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                                            <input
+                                                type="text"
+                                                placeholder="LeetCode username"
+                                                value={syncUsername}
+                                                onChange={e => setSyncUsername(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleSync()}
+                                                className="pl-8 pr-2 py-2 w-36 sm:w-44 text-sm rounded-lg border border-gray-200 dark:border-dark-600 bg-gray-50 dark:bg-dark-800 outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                                            />
+                                        </div>
+                                        <button onClick={() => setShowSession(!showSession)} title="Session cookie & sync settings"
+                                            className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${showSession ? 'bg-amber-500 text-white' : 'bg-gray-100 dark:bg-dark-700 hover:bg-gray-200 dark:hover:bg-dark-600'}`}>
+                                            <i className="fas fa-cog text-xs"></i>
+                                        </button>
+                                        <button onClick={handleSync} disabled={syncStatus === 'loading' || !syncUsername.trim()}
+                                            className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-all
+                                                ${syncStatus === 'loading' ? 'bg-gray-400 cursor-wait' : 'bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-600/20'} text-white`}>
+                                            {syncStatus === 'loading'
+                                                ? <><i className="fas fa-spinner fa-spin"></i><span className="hidden sm:inline">Syncing...</span></>
+                                                : <><i className="fas fa-sync-alt"></i><span className="hidden sm:inline">Sync</span></>}
+                                        </button>
+                                        {doneQuestions.size > 0 && (
+                                            <button onClick={clearAllDone} title="Clear all done marks"
+                                                className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-dark-700 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500 flex items-center justify-center transition-all text-gray-400">
+                                                <i className="fas fa-trash-alt text-xs"></i>
+                                            </button>
+                                        )}
+                                        {syncStatus && syncStatus !== 'loading' && (
+                                            <span className={`text-xs font-medium whitespace-nowrap ${syncStatus.ok ? 'text-green-500' : 'text-red-500'}`}>
+                                                {syncStatus.ok
+                                                    ? `✓ ${syncStatus.matched} matched${syncStatus.mode === 'replace' ? ' (replaced)' : ''}`
+                                                    : syncStatus.msg}
+                                            </span>
+                                        )}
+                                    </div>
+
                                     <a href="/docs" target="_blank" className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium shadow-lg shadow-brand-500/20 flex items-center gap-1.5">
                                         <i className="fas fa-book"></i><span className="hidden sm:inline">API Docs</span>
                                     </a>
@@ -682,6 +816,59 @@
                                     </a>
                                 </div>
                             </div>
+
+                            {/* Sync settings panel (collapsible) */}
+                            {showSession && (
+                                <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-dark-800 border border-gray-200 dark:border-dark-600 space-y-2.5">
+                                    {/* Session cookie input */}
+                                    <div className="flex items-center gap-2">
+                                        <i className="fas fa-key text-amber-500 text-sm shrink-0"></i>
+                                        <input
+                                            type="password"
+                                            placeholder="Paste your LEETCODE_SESSION cookie here..."
+                                            value={syncSession}
+                                            onChange={e => setSyncSession(e.target.value)}
+                                            className="flex-1 px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-dark-600 bg-white dark:bg-dark-700 outline-none focus:ring-2 focus:ring-amber-400"
+                                        />
+                                        {syncSession && (
+                                            <button onClick={clearSession} title="Clear saved cookie"
+                                                className="text-xs text-red-400 hover:text-red-500 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        )}
+                                        <span className="text-xs text-gray-400 hidden md:block whitespace-nowrap">
+                                            DevTools → Application → Cookies
+                                        </span>
+                                    </div>
+                                    {/* Sync mode toggle */}
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xs text-gray-500 dark:text-gray-400">Sync mode:</span>
+                                        <button onClick={() => setSyncMode('merge')}
+                                            className={`px-2.5 py-1 text-xs rounded-md border transition-all font-medium ${syncMode === 'merge'
+                                                ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-300'
+                                                : 'border-gray-300 dark:border-dark-600 text-gray-500 hover:border-gray-400'}`}>
+                                            <i className="fas fa-plus-circle mr-1"></i>Merge
+                                        </button>
+                                        <button onClick={() => setSyncMode('replace')}
+                                            className={`px-2.5 py-1 text-xs rounded-md border transition-all font-medium ${syncMode === 'replace'
+                                                ? 'border-orange-400 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-300'
+                                                : 'border-gray-300 dark:border-dark-600 text-gray-500 hover:border-gray-400'}`}>
+                                            <i className="fas fa-exchange-alt mr-1"></i>Replace
+                                        </button>
+                                        <span className="text-[11px] text-gray-400 hidden sm:block">
+                                            {syncMode === 'merge' ? 'Adds synced results to existing marks' : 'Replaces all marks with synced results only'}
+                                        </span>
+                                    </div>
+                                    {/* Info text */}
+                                    {!syncSession && (
+                                        <p className="text-[11px] text-gray-400 leading-relaxed">
+                                            <i className="fas fa-info-circle mr-1"></i>
+                                            Without a session cookie, only the 20 most recent solved problems can be synced.
+                                            Add your <strong>LEETCODE_SESSION</strong> cookie for full history.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Search & Filters row */}
                             <div className="flex items-center gap-2 sm:gap-3 mt-3 flex-wrap">
