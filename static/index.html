@@ -334,9 +334,12 @@
             const [columnFilters, setColumnFilters] = useState([]);
             const [sorting, setSorting] = useState([{ id: 'likes', desc: true }]);
             const [columnVisibility, setColumnVisibility] = useState({
-                done: true, frontendId: true, title: true, likes: true, dislikes: true, likeRatio: true, topicTags: true, difficulty: true, paidOnly: true,
+                done: true, frontendId: true, title: true, likes: true, dislikes: true, likeRatio: true, problemSets: true, topicTags: true, difficulty: true, paidOnly: true,
                 accepted: false, submissions: false, acRate: false, hasSolution: false, hasVideoSolution: false, category: false,
             });
+
+            // Problem sets state
+            const [problemSetsData, setProblemSetsData] = useState([]);
 
             // Done questions tracking with localStorage
             const [doneQuestions, setDoneQuestions] = useState(() => {
@@ -438,9 +441,30 @@
             useEffect(() => {
                 (async () => {
                     try {
-                        const res = await fetch('/data/leetcode_questions.json');
-                        if (!res.ok) throw new Error('Failed to fetch');
-                        const json = await res.json();
+                        // Fetch both questions and problem sets concurrently
+                        const [questionsRes, problemSetsRes] = await Promise.all([
+                            fetch('/data/leetcode_questions.json'),
+                            fetch('/data/problem_sets.json').catch(() => null) // Optional fetch
+                        ]);
+
+                        if (!questionsRes.ok) throw new Error('Failed to fetch questions');
+                        const json = await questionsRes.json();
+
+                        // Parse problem sets if available
+                        let setsData = [];
+                        let slugToSets = {};
+                        if (problemSetsRes && problemSetsRes.ok) {
+                            setsData = await problemSetsRes.json();
+                            setProblemSetsData(setsData);
+
+                            // Build lookup map for faster mapping
+                            setsData.forEach(set => {
+                                set.slugs.forEach(slug => {
+                                    if (!slugToSets[slug]) slugToSets[slug] = [];
+                                    slugToSets[slug].push(set.name);
+                                });
+                            });
+                        }
 
                         const arr = Array.isArray(json) ? json : Object.values(json);
                         setData(arr.map(item => {
@@ -448,11 +472,12 @@
                             let stats = {};
                             try { if (q.stats) stats = JSON.parse(q.stats); } catch { }
                             const likes = q.likes || 0, dislikes = q.dislikes || 0;
+                            const slug = q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '') : '');
                             return {
                                 id: q.questionId,
                                 frontendId: q.questionFrontendId,
                                 title: q.title,
-                                slug: q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '') : ''),
+                                slug,
                                 difficulty: q.difficulty,
                                 paidOnly: q.paidOnly || q.isPaidOnly || false,
                                 hasSolution: q.hasSolution || false,
@@ -464,6 +489,7 @@
                                 accepted: stats.totalAccepted || null,
                                 submissions: stats.totalSubmission || null,
                                 topicTags: (q.topicTags || []).map(t => t.name),
+                                problemSets: slugToSets[slug] || [],
                                 category: q.categoryTitle || '',
                             };
                         }).filter(q => q.id));
@@ -576,6 +602,34 @@
                         return filterValue.some(f => tags.includes(f));
                     },
                 }),
+                columnHelper.accessor('problemSets', {
+                    id: 'problemSets',
+                    header: 'Sets',
+                    cell: i => {
+                        const s = i.getValue() || [];
+                        if (s.length === 0) return null;
+                        return (
+                            <div className="flex gap-1 overflow-hidden">
+                                {s.map((x, j) => {
+                                    const isNeetcode = x.toLowerCase().includes('neetcode');
+                                    const isBlind75 = x.toLowerCase().includes('blind');
+                                    let bgClass = "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"; // default
+                                    if (isNeetcode) bgClass = "bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300";
+                                    else if (isBlind75) bgClass = "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300";
+
+                                    return <span key={j} className={`shrink-0 px-2 py-0.5 text-xs rounded font-medium ${bgClass}`}>{x}</span>
+                                })}
+                            </div>
+                        );
+                    },
+                    size: 150,
+                    meta: { label: 'Sets', hasDropdownFilter: true },
+                    filterFn: (row, columnId, filterValue) => {
+                        if (!filterValue || !filterValue.length) return true;
+                        const sets = row.getValue(columnId) || [];
+                        return filterValue.some(f => sets.includes(f));
+                    },
+                }),
                 columnHelper.accessor('difficulty', {
                     id: 'difficulty',
                     header: 'Difficulty',
@@ -677,6 +731,7 @@
                 getFilteredRowModel: getFilteredRowModel(),
                 getSortedRowModel: getSortedRowModel(),
                 globalFilterFn: 'includesString',
+                columnResizeMode: 'onChange',
             });
 
             const { rows } = table.getRowModel();
@@ -689,6 +744,14 @@
                 data.forEach(d => (d.topicTags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
                 return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0])).map(([value, count]) => ({ value, count }));
             }, [data]);
+
+            // Compute available problem sets for filter
+            const allProblemSets = useMemo(() => {
+                return problemSetsData.map(set => ({
+                    value: set.name,
+                    count: data.filter(d => d.problemSets?.includes(set.name)).length
+                })).filter(s => s.count > 0);
+            }, [problemSetsData, data]);
 
             const containerRef = useRef(null);
             const rowVirtualizer = useVirtualizer({
@@ -943,13 +1006,30 @@
                                 <div className="bg-gray-50 dark:bg-dark-800 border-b-2 border-gray-200 dark:border-dark-600 sticky top-0 z-10"
                                     style={{ display: 'grid', gridTemplateColumns: gridCols, minWidth: 'max-content' }}>
                                     {table.getHeaderGroups()[0].headers.filter(h => h.column.getIsVisible()).map(h => (
-                                        <div key={h.id} onClick={h.column.getToggleSortingHandler()}
-                                            className="cell text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors">
-                                            <span>{h.column.columnDef.header}</span>
-                                            {h.column.getIsSorted() === 'asc' && <i className="fas fa-caret-up ml-1 text-brand-500"></i>}
-                                            {h.column.getIsSorted() === 'desc' && <i className="fas fa-caret-down ml-1 text-brand-500"></i>}
-                                            {h.column.columnDef.meta?.hasDropdownFilter && (
-                                                <CheckboxFilterDropdown column={h.column} allOptions={allTopics} />
+                                        <div key={h.id}
+                                            className="cell text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide select-none hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors relative group">
+
+                                            <div onClick={h.column.getToggleSortingHandler()} className={`flex items-center gap-1 w-full h-full ${h.column.getCanSort() ? 'cursor-pointer' : ''}`}>
+                                                <span>{typeof h.column.columnDef.header === 'function' ? flexRender(h.column.columnDef.header, h.getContext()) : h.column.columnDef.header}</span>
+                                                {h.column.getIsSorted() === 'asc' && <i className="fas fa-caret-up ml-1 text-brand-500"></i>}
+                                                {h.column.getIsSorted() === 'desc' && <i className="fas fa-caret-down ml-1 text-brand-500"></i>}
+                                                {h.column.columnDef.meta?.hasDropdownFilter && (h.id === 'topicTags' || h.id === 'problemSets') && (
+                                                    <div onClick={e => e.stopPropagation()}>
+                                                        <CheckboxFilterDropdown
+                                                            column={h.column}
+                                                            allOptions={h.id === 'topicTags' ? allTopics : allProblemSets}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {h.column.getCanResize() && (
+                                                <div
+                                                    onMouseDown={h.getResizeHandler()}
+                                                    onTouchStart={h.getResizeHandler()}
+                                                    onClick={e => e.stopPropagation()}
+                                                    className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none hover:bg-brand-500 z-20 ${h.column.getIsResizing() ? 'bg-brand-500' : 'bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-dark-600'}`}
+                                                />
                                             )}
                                         </div>
                                     ))}
