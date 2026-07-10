@@ -33,6 +33,9 @@ curl https://leetcode-api-pied.vercel.app/daily
 curl https://leetcode-api-pied.vercel.app/problem/1
 curl https://leetcode-api-pied.vercel.app/problem/two-sum
 
+# Get problem signature directly to a file
+curl https://leetcode-api-pied.vercel.app/problem/1/signature/c > problem1.c
+
 # Get user profile (try your LeetCode username!)
 curl https://leetcode-api-pied.vercel.app/user/lee215
 ```
@@ -45,6 +48,7 @@ curl https://leetcode-api-pied.vercel.app/user/lee215
 | `/problems` | GET | All LeetCode problems | [/problems](https://leetcode-api-pied.vercel.app/problems) |
 | `/problems/filter` | GET | Filter problems (difficulty, etc) | [/problems/filter?difficulty=Easy](https://leetcode-api-pied.vercel.app/problems/filter?difficulty=Easy) |
 | `/problem/{id_or_slug}` | GET | Get problem by ID/slug | [/problem/two-sum](https://leetcode-api-pied.vercel.app/problem/two-sum) |
+| `/problem/{id_or_slug}/signature/{lang_slug}` | GET | Get problem code signature as plain text | [/problem/1/signature/c](https://leetcode-api-pied.vercel.app/problem/1/signature/c) |
 | `/problem/{id}/similar` | GET | Get similar problems | [/problem/two-sum/similar](https://leetcode-api-pied.vercel.app/problem/two-sum/similar) |
 | `/search` | GET | Search for problems | [/search?query=two%20sum](https://leetcode-api-pied.vercel.app/search?query=two%20sum) |
 | `/random` | GET | Random problem (supports filters) | [/random?difficulty=Easy](https://leetcode-api-pied.vercel.app/random?difficulty=Easy) |

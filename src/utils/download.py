@@ -82,6 +82,11 @@ query questionData($titleSlug: String!) {
     companyTags { name }
     difficulty
     isPaidOnly
+    codeSnippets {
+      lang
+      langSlug
+      code
+    }
     solution {
       canSeeDetail
       content
@@ -170,7 +175,12 @@ for idx, question in enumerate(all_basic_questions):
             if response.status_code == 200:
                 question_data = response.json()
                 if question_data.get("data") and question_data["data"].get("question"):
-                    question_data["data"]["question"]["url"] = f"https://leetcode.com/problems/{title_slug}/"
+                    q = question_data["data"]["question"]
+                    q["url"] = f"https://leetcode.com/problems/{title_slug}/"
+                    if "codeSnippets" in q and q["codeSnippets"]:
+                        for s in q["codeSnippets"]:
+                            if "langSlug" in s:
+                                s["langsSlug"] = s["langSlug"]
                     all_questions_data.append(question_data)
                     print(f"Processed: {len(all_questions_data)}/{len(all_basic_questions)} - (ID: {question_id}) {question['title']}")
                 success = True
