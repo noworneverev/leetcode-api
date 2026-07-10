@@ -7,7 +7,7 @@ import httpx
 from typing import Dict, Optional, List
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -69,6 +69,38 @@ class QuestionCache:
         self.tags_cache: List[dict] = []
         self.tags_last_updated: float = 0
         self.tags_cache_duration: int = 3600  # Cache tags for 1 hour
+        self._all_details_loaded = False
+        self._all_details_map = {}
+
+    def _ensure_all_details_loaded(self):
+        if self._all_details_loaded:
+            return
+        
+        # Check if the full leetcode_questions.json file exists
+        full_path = os.path.join(data_dir, "leetcode_questions.json")
+        if os.path.exists(full_path):
+            try:
+                import json
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for item in data:
+                    q = None
+                    if "data" in item and "question" in item["data"]:
+                        q = item["data"]["question"]
+                    elif "questionId" in item:
+                        q = item
+                    
+                    if q and q.get("questionId"):
+                        if "codeSnippets" in q and q["codeSnippets"]:
+                            for s in q["codeSnippets"]:
+                                if "langSlug" in s:
+                                    s["langsSlug"] = s["langSlug"]
+                                elif "langsSlug" in s:
+                                    s["langSlug"] = s["langsSlug"]
+                        self._all_details_map[q["questionId"]] = q
+            except Exception as e:
+                print(f"Error loading full details from file: {e}")
+        self._all_details_loaded = True
 
     async def initialize(self):
         async with self.lock:
@@ -382,6 +414,15 @@ async def get_problem(id_or_slug: str):
     if cached:
         return cached
 
+    # check local details file
+    cache._ensure_all_details_loaded()
+    local_detail = cache._all_details_map.get(question_id)
+    if local_detail:
+        if "url" not in local_detail:
+            local_detail["url"] = f"https://leetcode.com/problems/{slug}/"
+        cache.question_details.set(question_id, local_detail)
+        return local_detail
+
     # not in cache, fetch from leetcode
     query = """query questionData($titleSlug: String!) {
         question(titleSlug: $titleSlug) {            
@@ -399,6 +440,11 @@ async def get_problem(id_or_slug: str):
             companyTags { name }
             difficulty
             isPaidOnly
+            codeSnippets {
+                lang
+                langSlug
+                code
+            }
             solution { canSeeDetail content }
             hasSolution 
             hasVideoSolution
@@ -416,9 +462,97 @@ async def get_problem(id_or_slug: str):
     
     question_data = data["data"]["question"]
     question_data["url"] = f"https://leetcode.com/problems/{slug}/"
+    if "codeSnippets" in question_data and question_data["codeSnippets"]:
+        for s in question_data["codeSnippets"]:
+            if "langSlug" in s:
+                s["langsSlug"] = s["langSlug"]
         
     cache.question_details.set(question_id, question_data)
     return question_data
+
+@app.get("/problem/{id_or_slug}/signature/{lang_slug}", tags=["Problems"])
+async def get_problem_signature(id_or_slug: str, lang_slug: str):
+    await cache.initialize()
+    
+    if id_or_slug in cache.frontend_id_to_slug:
+        slug = cache.frontend_id_to_slug[id_or_slug]
+    elif id_or_slug in cache.slug_to_id:
+        slug = id_or_slug
+    else:
+        raise HTTPException(status_code=404, detail="Question not found")
+        
+    question_id = cache.slug_to_id[slug]
+    
+    # 1. Check memory LRU cache
+    cached = cache.question_details.get(question_id)
+    
+    # 2. Check local files if not in cache or if cached does not have codeSnippets
+    if not cached or "codeSnippets" not in cached:
+        cache._ensure_all_details_loaded()
+        local_detail = cache._all_details_map.get(question_id)
+        if local_detail and "codeSnippets" in local_detail:
+            if "url" not in local_detail:
+                local_detail["url"] = f"https://leetcode.com/problems/{slug}/"
+            cache.question_details.set(question_id, local_detail)
+            cached = local_detail
+
+    # 3. Fetch from LeetCode live if still missing codeSnippets
+    if not cached or "codeSnippets" not in cached:
+        query = """query questionData($titleSlug: String!) {
+            question(titleSlug: $titleSlug) {            
+                questionId
+                questionFrontendId
+                title
+                content
+                likes
+                dislikes
+                stats
+                similarQuestions
+                categoryTitle
+                hints
+                topicTags { name }
+                companyTags { name }
+                difficulty
+                isPaidOnly
+                codeSnippets {
+                    lang
+                    langSlug
+                    code
+                }
+                solution { canSeeDetail content }
+                hasSolution 
+                hasVideoSolution
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": {"titleSlug": slug}
+        }
+        
+        data = await fetch_with_retry(leetcode_url, payload)
+        if not data or "data" not in data or not data["data"]["question"]:
+            raise HTTPException(status_code=404, detail="Question data not found")
+        
+        question_data = data["data"]["question"]
+        question_data["url"] = f"https://leetcode.com/problems/{slug}/"
+        if "codeSnippets" in question_data and question_data["codeSnippets"]:
+            for s in question_data["codeSnippets"]:
+                if "langSlug" in s:
+                    s["langsSlug"] = s["langSlug"]
+        cache.question_details.set(question_id, question_data)
+        cached = question_data
+
+    code_snippets = cached.get("codeSnippets")
+    if not code_snippets:
+        raise HTTPException(status_code=404, detail="Code snippets not found for this question")
+        
+    for snippet in code_snippets:
+        slug_val = snippet.get("langSlug") or snippet.get("langsSlug")
+        if slug_val and slug_val.lower() == lang_slug.lower():
+            return PlainTextResponse(content=snippet.get("code", ""))
+            
+    raise HTTPException(status_code=404, detail=f"Signature for language '{lang_slug}' not found")
 
 @app.get("/search", tags=["Problems"])
 async def search_problems(query: str):

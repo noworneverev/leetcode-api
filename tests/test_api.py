@@ -179,6 +179,121 @@ class TestProblemsEndpoints:
         response = client.get("/problem/nonexistent-problem")
         assert response.status_code == 404
 
+    def test_get_problem_signature_by_slug(self):
+        """Test fetching problem signature by slug."""
+        with patch("src.api.api.fetch_with_retry") as mock_fetch:
+            mock_fetch.return_value = {
+                "data": {
+                    "question": {
+                        "questionId": "1",
+                        "questionFrontendId": "1",
+                        "title": "Two Sum",
+                        "content": "<p>Test content</p>",
+                        "difficulty": "Easy",
+                        "isPaidOnly": False,
+                        "codeSnippets": [
+                            {"lang": "C++", "langsSlug": "cpp", "code": "class Solution {};"},
+                            {"lang": "Python3", "langsSlug": "python3", "code": "class Solution:\n    pass"}
+                        ]
+                    }
+                }
+            }
+            
+            # Clear details cache to force fetch
+            from src.api.api import cache
+            cache.question_details._cache.clear()
+            
+            response = client.get("/problem/two-sum/signature/cpp")
+            assert response.status_code == 200
+            assert "text/plain" in response.headers["content-type"]
+            assert response.text == "class Solution {};"
+
+    def test_get_problem_signature_by_frontend_id(self):
+        """Test fetching problem signature by frontend ID."""
+        with patch("src.api.api.fetch_with_retry") as mock_fetch:
+            mock_fetch.return_value = {
+                "data": {
+                    "question": {
+                        "questionId": "1",
+                        "questionFrontendId": "1",
+                        "title": "Two Sum",
+                        "content": "<p>Test content</p>",
+                        "difficulty": "Easy",
+                        "isPaidOnly": False,
+                        "codeSnippets": [
+                            {"lang": "C++", "langsSlug": "cpp", "code": "class Solution {};"},
+                            {"lang": "Python3", "langsSlug": "python3", "code": "class Solution:\n    pass"}
+                        ]
+                    }
+                }
+            }
+            
+            from src.api.api import cache
+            cache.question_details._cache.clear()
+            
+            response = client.get("/problem/1/signature/python3")
+            assert response.status_code == 200
+            assert "text/plain" in response.headers["content-type"]
+            assert response.text == "class Solution:\n    pass"
+
+    def test_get_problem_signature_case_insensitive(self):
+        """Test that fetching problem signature is case-insensitive."""
+        with patch("src.api.api.fetch_with_retry") as mock_fetch:
+            mock_fetch.return_value = {
+                "data": {
+                    "question": {
+                        "questionId": "1",
+                        "questionFrontendId": "1",
+                        "title": "Two Sum",
+                        "content": "<p>Test content</p>",
+                        "difficulty": "Easy",
+                        "isPaidOnly": False,
+                        "codeSnippets": [
+                            {"lang": "C++", "langsSlug": "cpp", "code": "class Solution {};"},
+                            {"lang": "Python3", "langsSlug": "python3", "code": "class Solution:\n    pass"}
+                        ]
+                    }
+                }
+            }
+            
+            from src.api.api import cache
+            cache.question_details._cache.clear()
+            
+            response = client.get("/problem/two-sum/signature/PYTHON3")
+            assert response.status_code == 200
+            assert response.text == "class Solution:\n    pass"
+
+    def test_get_problem_signature_not_found_lang(self):
+        """Test fetching signature for an unsupported language."""
+        with patch("src.api.api.fetch_with_retry") as mock_fetch:
+            mock_fetch.return_value = {
+                "data": {
+                    "question": {
+                        "questionId": "1",
+                        "questionFrontendId": "1",
+                        "title": "Two Sum",
+                        "content": "<p>Test content</p>",
+                        "difficulty": "Easy",
+                        "isPaidOnly": False,
+                        "codeSnippets": [
+                            {"lang": "C++", "langsSlug": "cpp", "code": "class Solution {};"}
+                        ]
+                    }
+                }
+            }
+            
+            from src.api.api import cache
+            cache.question_details._cache.clear()
+            
+            response = client.get("/problem/two-sum/signature/golang")
+            assert response.status_code == 404
+            assert "not found" in response.json()["detail"].lower()
+
+    def test_get_problem_signature_not_found_question(self):
+        """Test 404 when requesting signature of nonexistent problem."""
+        response = client.get("/problem/nonexistent-problem/signature/cpp")
+        assert response.status_code == 404
+
     def test_search_problems(self):
         """Test searching problems by title."""
         response = client.get("/search?query=sum")
