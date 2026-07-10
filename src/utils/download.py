@@ -5,6 +5,44 @@ import json
 import os
 from src.utils.google_sheets import get_google_sheets_service, prepare_sheet_data, update_google_sheet
 
+def generate_mini_data(raw_data):
+    mini_data = []
+    for item in raw_data:
+        q = None
+        if isinstance(item, dict):
+            if "data" in item and "question" in item["data"]:
+                q = item["data"]["question"]
+            elif "questionId" in item:
+                q = item
+                
+        if q:
+            likes = q.get("likes") or 0
+            dislikes = q.get("dislikes") or 0
+            total = likes + dislikes
+            like_ratio = round((likes / total) * 100, 1) if total > 0 else 0.0
+            dislike_ratio = round((dislikes / total) * 100, 1) if total > 0 else 0.0
+            
+            mini_q = {
+                "questionId": q.get("questionId"),
+                "questionFrontendId": q.get("questionFrontendId"),
+                "title": q.get("title"),
+                "titleSlug": q.get("titleSlug"),
+                "difficulty": q.get("difficulty"),
+                "isPaidOnly": q.get("isPaidOnly") or q.get("paidOnly", False),
+                "likes": likes,
+                "dislikes": dislikes,
+                "likeRatio": f"{like_ratio:.1f}",
+                "dislikeRatio": f"{dislike_ratio:.1f}",
+                "categoryTitle": q.get("categoryTitle"),
+                "topicTags": q.get("topicTags") or [],
+                "hasSolution": q.get("hasSolution", False),
+                "hasVideoSolution": q.get("hasVideoSolution", False),
+                "stats": q.get("stats"),
+                "url": q.get("url")
+            }
+            mini_data.append(mini_q)
+    return mini_data
+
 url = "https://leetcode.com/graphql"
 
 # --- GraphQL Queries ---
@@ -163,6 +201,10 @@ for idx, question in enumerate(all_basic_questions):
     if len(all_questions_data) % 100 == 0:
         with open(data_file_path, "w", encoding='utf-8') as f:
             json.dump(all_questions_data, f, indent=2, ensure_ascii=False)
+        mini_data_file_path = os.path.join(os.path.dirname(data_file_path), "leetcode_questions_mini.json")
+        mini_data = generate_mini_data(all_questions_data)
+        with open(mini_data_file_path, "w", encoding='utf-8') as f:
+            json.dump(mini_data, f, ensure_ascii=False)
         print(f">>> Auto-save: Progress backed up to JSON.")
 
 # --- Phase 3: Storage and External Updates ---
@@ -171,7 +213,13 @@ for idx, question in enumerate(all_basic_questions):
 with open(data_file_path, "w", encoding='utf-8') as f:
     json.dump(all_questions_data, f, indent=2, ensure_ascii=False)
 
+mini_data_file_path = os.path.join(os.path.dirname(data_file_path), "leetcode_questions_mini.json")
+mini_data = generate_mini_data(all_questions_data)
+with open(mini_data_file_path, "w", encoding='utf-8') as f:
+    json.dump(mini_data, f, ensure_ascii=False)
+
 print(f"Local backup saved to: {data_file_path}")
+print(f"Mini backup saved to: {mini_data_file_path}")
 
 # 2. Update Google Sheets
 if len(all_questions_data) >= 1000:
