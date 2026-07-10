@@ -59,7 +59,12 @@ class QuestionCache:
         self.last_updated: float = 0
         self.update_interval: int = 3600
         self.lock = asyncio.Lock()
-        self.data_file_path = os.path.join(data_dir, "leetcode_questions.json")
+        # Check for mini file first to optimize startup speed
+        mini_path = os.path.join(data_dir, "leetcode_questions_mini.json")
+        if os.path.exists(mini_path):
+            self.data_file_path = mini_path
+        else:
+            self.data_file_path = os.path.join(data_dir, "leetcode_questions.json")
         # Tags cache
         self.tags_cache: List[dict] = []
         self.tags_last_updated: float = 0
@@ -122,6 +127,16 @@ class QuestionCache:
                         if parts:
                             title_slug = parts[-1]
                     
+                    likes = q.get("likes") or 0
+                    dislikes = q.get("dislikes") or 0
+                    total = likes + dislikes
+                    like_ratio = q.get("likeRatio")
+                    if like_ratio is None:
+                        like_ratio = f"{(likes / total * 100):.1f}" if total > 0 else "0.0"
+                    dislike_ratio = q.get("dislikeRatio")
+                    if dislike_ratio is None:
+                        dislike_ratio = f"{(dislikes / total * 100):.1f}" if total > 0 else "0.0"
+
                     q_data = {
                         "questionId": q.get("questionId"),
                         "questionFrontendId": q.get("questionFrontendId"),
@@ -130,7 +145,13 @@ class QuestionCache:
                         "difficulty": q.get("difficulty"),
                         "paidOnly": q.get("isPaidOnly") or q.get("paidOnly", False),
                         "hasSolution": q.get("hasSolution", False),
-                        "hasVideoSolution": q.get("hasVideoSolution", False)
+                        "hasVideoSolution": q.get("hasVideoSolution", False),
+                        "likes": likes,
+                        "dislikes": dislikes,
+                        "likeRatio": like_ratio,
+                        "dislikeRatio": dislike_ratio,
+                        "stats": q.get("stats"),
+                        "url": q.get("url") or f"https://leetcode.com/problems/{title_slug}/"
                     }
                     
                     # Ensure minimal required fields
@@ -332,11 +353,16 @@ async def get_all_problems():
         "frontend_id": q["questionFrontendId"],
         "title": q["title"],
         "title_slug": q["titleSlug"],
-        "url": f"https://leetcode.com/problems/{q['titleSlug']}/",
+        "url": q.get("url") or f"https://leetcode.com/problems/{q['titleSlug']}/",
         "difficulty": q["difficulty"],                
         "paid_only": q["paidOnly"],        
         "has_solution": q["hasSolution"],
-        "has_video_solution": q["hasVideoSolution"],        
+        "has_video_solution": q["hasVideoSolution"],
+        "likes": q.get("likes", 0),
+        "dislikes": q.get("dislikes", 0),
+        "like_ratio": q.get("likeRatio", "0.0"),
+        "dislike_ratio": q.get("dislikeRatio", "0.0"),
+        "topic_tags": [t.get("name") if isinstance(t, dict) else t for t in q.get("topicTags", [])] if q.get("topicTags") else []
     } for q in cache.questions.values()]
 
 @app.get("/problem/{id_or_slug}", tags=["Problems"])

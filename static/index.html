@@ -443,7 +443,7 @@
                     try {
                         // Fetch both questions and problem sets concurrently
                         const [questionsRes, problemSetsRes] = await Promise.all([
-                            fetch('/data/leetcode_questions.json'),
+                            fetch('/data/leetcode_questions_mini.json'),
                             fetch('/data/problem_sets.json').catch(() => null) // Optional fetch
                         ]);
 
@@ -470,7 +470,7 @@
                         setData(arr.map(item => {
                             const q = item.data?.question || item;
                             let stats = {};
-                            try { if (q.stats) stats = JSON.parse(q.stats); } catch { }
+                            try { if (q.stats) stats = typeof q.stats === 'string' ? JSON.parse(q.stats) : (q.stats || {}); } catch { }
                             const likes = q.likes || 0, dislikes = q.dislikes || 0;
                             const slug = q.titleSlug || (q.title ? q.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '') : '');
                             return {

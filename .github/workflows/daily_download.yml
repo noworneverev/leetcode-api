@@ -29,10 +29,10 @@ jobs:
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/leetcode_questions.json
+          git add data/leetcode_questions.json data/leetcode_questions_mini.json
           if git diff-index --quiet HEAD; then
             echo "No changes to commit"
           else
-            git commit -m "Update leetcode_questions.json"
+            git commit -m "Update leetcode questions data files"
             git push
           fi
